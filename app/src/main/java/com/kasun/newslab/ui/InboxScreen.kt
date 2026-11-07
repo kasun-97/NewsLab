@@ -246,7 +246,15 @@ fun InboxScreen(
     // setting entirely — it's meant to find things regardless of the current view.
     // Computed up here so both the search bar (result count / navigation) and the
     // list below can share it.
-    val searchResults = remember(articles, searchActive, searchQuery) {
+    //
+    // Article bodies are searched too, through the full-text index the ViewModel
+    // queries off the main thread; this only hands it the query, and clears it when
+    // search closes. Those matches join the headline ones in the list's own order.
+    LaunchedEffect(searchActive, searchQuery) {
+        vm.setBodySearchQuery(if (searchActive) searchQuery else "")
+    }
+    val bodyMatchIds by vm.bodySearchIds.collectAsState()
+    val searchResults = remember(articles, searchActive, searchQuery, bodyMatchIds) {
         val q = searchQuery.trim()
         if (!searchActive || q.isBlank()) {
             emptyList()
@@ -254,7 +262,8 @@ fun InboxScreen(
             articles.filter {
                 it.title.contains(q, ignoreCase = true) ||
                     it.summary.contains(q, ignoreCase = true) ||
-                    it.feedName.contains(q, ignoreCase = true)
+                    it.feedName.contains(q, ignoreCase = true) ||
+                    it.id in bodyMatchIds
             }
         }
     }

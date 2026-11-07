@@ -465,6 +465,32 @@ class Repository(private val context: Context) {
     }
 
     /**
+     * Ids of the articles whose cached body contains every word of [query], through the
+     * full-text index over article_content. Only bodies already extracted (opened in the
+     * reader, or pre-fetched) are indexed, so this finds nothing in articles never read.
+     *
+     * Room has no entity for the index, hence the raw connection. A failure here (the
+     * database being swapped out by an import, say) degrades to no body matches; the
+     * headline search beside it still works.
+     */
+    suspend fun searchBodies(query: String): Set<String> = withContext(Dispatchers.IO) {
+        val match = BodySearch.matchExpression(query) ?: return@withContext emptySet()
+        try {
+            db.openHelper.readableDatabase.query(
+                "SELECT c.id FROM article_content c WHERE c.rowid IN " +
+                    "(SELECT docid FROM article_content_fts WHERE article_content_fts MATCH ?)",
+                arrayOf<Any?>(match),
+            ).use { cursor ->
+                buildSet { while (cursor.moveToNext()) add(cursor.getString(0)) }
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            emptySet()
+        }
+    }
+
+    /**
      * Returns the article's readable body, extracting and caching it on first use.
      * A cached body is returned verbatim (works offline); a fresh extraction is
      * persisted so re-opens — and saved articles — don't refetch.
@@ -555,5 +581,44 @@ class Repository(private val context: Context) {
 
         /** Caps concurrent feed fetches — parallel enough to hide slow hosts, polite to the network. */
         val fetchSemaphore = Semaphore(6)
+    }
+}
+
+/** Turns what someone typed into the search bar into an FTS4 MATCH expression. */
+internal object BodySearch {
+    // What the unicode61 tokenizer keeps together as one word. Marks are included
+    // because Sinhala and Tamil vowel signs are marks, and splitting on them would cut
+    // every word of those feeds into pieces.
+    private val wordChars = Regex("""[\p{L}\p{M}\p{N}]+""")
+
+    // NEAR takes a distance (NEAR/3); the number goes with the operator, not the query.
+    private val nearWithDistance = Regex("""\bNEAR/\d+\b""")
+
+    // FTS4 only reads these as operators in capitals, so the same words in lower case
+    // stay ordinary search terms.
+    private val operators = setOf("AND", "OR", "NOT", "NEAR")
+
+    /**
+     * Each word quoted with a trailing `*`, joined by spaces: every word must
+     * appear, as the start of a word, in any order. "rate" finds "rates".
+     *
+     * Quoting is what makes user input safe here: only letters, marks and digits
+     * survive into the quotes, so no quote, `-`, `*`, `:` or `^` can reach FTS as
+     * syntax, and a stray operator can't turn the query into a syntax error. The
+     * operator words are dropped rather than honoured because the headline search
+     * running beside this has no operators either: "imf OR loan" would otherwise
+     * mean one thing for titles and another for bodies.
+     *
+     * @return null when nothing searchable is left, so the caller can skip the query.
+     */
+    fun matchExpression(query: String): String? {
+        val words = wordChars.findAll(query.replace(nearWithDistance, " "))
+            .map { it.value }
+            .filterNot { it in operators }
+            .toList()
+        if (words.isEmpty()) return null
+        // FTS4 reads the star inside the quotes; "rate"* (the FTS5 form) silently
+        // drops it and matches only the exact word.
+        return words.joinToString(" ") { "\"$it*\"" }
     }
 }

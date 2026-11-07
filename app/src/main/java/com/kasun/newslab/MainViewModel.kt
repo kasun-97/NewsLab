@@ -35,12 +35,16 @@ import com.kasun.newslab.work.Notifier
 import com.kasun.newslab.work.RefreshWorker
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
@@ -111,6 +115,30 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     val unread = articles.map { list -> list.count { !it.isRead } }
         .flowOn(Dispatchers.Default)
         .state(0)
+
+    private val bodySearchQuery = MutableStateFlow("")
+
+    /**
+     * Ids of articles whose cached body matches the inbox search, for the inbox to add
+     * to its headline matches. Only bodies already extracted (opened or pre-fetched)
+     * are in the index, so this can't find text in an article nobody has opened.
+     *
+     * Debounced so a query runs once typing pauses, not per keystroke, and on IO since
+     * it goes straight to the database. Clearing skips the wait: the inbox ignores the
+     * set while the query is blank, but a stale set would briefly widen the next search.
+     */
+    @OptIn(FlowPreview::class)
+    val bodySearchIds: StateFlow<Set<String>> = bodySearchQuery
+        .debounce { if (it.isBlank()) 0L else 250L }
+        .distinctUntilChanged()
+        .map { query -> if (query.isBlank()) emptySet() else repo.searchBodies(query) }
+        .flowOn(Dispatchers.IO)
+        .state(emptySet())
+
+    /** What the inbox search bar holds; blank while search is closed. */
+    fun setBodySearchQuery(query: String) {
+        bodySearchQuery.value = query.trim()
+    }
 
     var refreshing by mutableStateOf(false)
         private set
