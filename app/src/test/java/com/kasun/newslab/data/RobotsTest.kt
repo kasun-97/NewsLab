@@ -39,9 +39,9 @@ class RobotsTest {
     }
 
     @Test
-    fun agentMatchIsCaseInsensitiveAndLongestPrefixWins() {
-        // Current behaviour: an agent that is a prefix of our token ("news") also
-        // names us; the longest such agent is the one used.
+    fun agentMatchIsCaseInsensitiveAndExact() {
+        // An agent that merely shares a prefix with our token ("news") is someone
+        // else's crawler and doesn't apply to us.
         val r = rules(
             """
             User-agent: News
@@ -53,7 +53,26 @@ class RobotsTest {
         )
         assertTrue(r.allows("/a"))
         assertFalse(r.allows("/b"))
-        assertFalse(rules("User-agent: news\nDisallow: /a").allows("/a"))
+        assertTrue(rules("User-agent: news\nDisallow: /a").allows("/a"))
+    }
+
+    @Test
+    fun severalGroupsNamingUsAreCombined() {
+        val r = rules(
+            """
+            User-agent: newslab
+            Disallow: /a
+
+            User-agent: *
+            Disallow: /c
+
+            User-agent: newslab
+            Disallow: /b
+            """,
+        )
+        assertFalse(r.allows("/a"))
+        assertFalse(r.allows("/b"))
+        assertTrue(r.allows("/c"))
     }
 
     @Test
@@ -153,9 +172,9 @@ class RobotsTest {
     }
 
     @Test
-    fun emptyUserAgentValueIsTreatedAsNamingUs() {
-        // Current behaviour, documented: a blank "User-agent:" value is a prefix of
-        // every token, so its group is picked over the wildcard group.
+    fun emptyUserAgentValueNamesNobody() {
+        // A blank "User-agent:" line used to count as a prefix of every token and
+        // override the wildcard group; its rules now apply to no crawler.
         val r = rules(
             """
             User-agent: *
@@ -165,6 +184,6 @@ class RobotsTest {
             Disallow: /
             """,
         )
-        assertFalse(r.allows("/news"))
+        assertTrue(r.allows("/news"))
     }
 }

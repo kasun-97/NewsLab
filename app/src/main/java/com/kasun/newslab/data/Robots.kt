@@ -69,7 +69,8 @@ internal object Robots {
                     if (!lastWasAgent || current == null) {
                         current = Group().also { groups.add(it) }
                     }
-                    current!!.agents.add(value.lowercase())
+                    // A blank value names nobody (it used to count as a prefix of every token).
+                    if (value.isNotEmpty()) current!!.agents.add(value.lowercase())
                     lastWasAgent = true
                 }
                 "allow" -> {
@@ -84,24 +85,13 @@ internal object Robots {
             }
         }
 
-        // Prefer the most specific group naming our token; else the wildcard group.
-        var specific: Group? = null
-        var specificLen = -1
-        var wildcard: Group? = null
-        for (group in groups) {
-            for (agent in group.agents) {
-                if (agent == "*") {
-                    if (wildcard == null) wildcard = group
-                } else if (TOKEN == agent || TOKEN.startsWith(agent)) {
-                    if (agent.length > specificLen) {
-                        specific = group
-                        specificLen = agent.length
-                    }
-                }
-            }
-        }
-        val group = specific ?: wildcard ?: return ALLOW_ALL
-        return Rules(group.rules.toList())
+        // RFC 9309: the groups naming our product token exactly (case-insensitively)
+        // apply, and several such groups are combined; otherwise the wildcard groups.
+        // An agent that merely shares a prefix with ours ("news") is someone else.
+        val ours = groups.filter { TOKEN in it.agents }
+        val chosen = if (ours.isNotEmpty()) ours else groups.filter { "*" in it.agents }
+        if (chosen.isEmpty()) return ALLOW_ALL
+        return Rules(chosen.flatMap { it.rules })
     }
 
     /** A `robots.txt` group: one or more user-agents and the Allow/Disallow rules under them. */
