@@ -1,6 +1,8 @@
 # NewsLab
 
 [![Android CI](https://github.com/kasun-97/NewsLab/actions/workflows/android.yml/badge.svg)](https://github.com/kasun-97/NewsLab/actions/workflows/android.yml)
+[![Latest release](https://img.shields.io/github/v/release/kasun-97/NewsLab?label=release)](https://github.com/kasun-97/NewsLab/releases/latest)
+[![Licence](https://img.shields.io/github/license/kasun-97/NewsLab)](LICENSE)
 
 A priority-inbox RSS reader for Android, written in Kotlin with Jetpack Compose.
 Articles that match your keyword rules are pinned to the top of the inbox; everything
