@@ -33,6 +33,34 @@ object RssParser {
     // Matches <img> and the AMP <amp-img> variant some WordPress themes emit.
     private val imgTag = Regex("""<(?:amp-)?img\b[^>]*?\ssrc=["']([^"']+)["']""", RegexOption.IGNORE_CASE)
 
+    /** Nested tags re-emitted as markup so paragraph structure survives; everything else inline is dropped. */
+    private val BLOCK_TAGS = setOf(
+        "p", "div", "li", "ul", "ol", "blockquote", "pre", "tr", "h1", "h2", "h3", "h4", "h5", "h6",
+    )
+
+    /**
+     * Markup nested inside a captured field (Atom `type="xhtml"` content) used to be
+     * discarded down to its text, so `<p>One</p><p>Two</p>` read "OneTwo". Block tags,
+     * line breaks and images are kept as minimal HTML: [TextUtil.clean] turns the blocks
+     * back into paragraph breaks and [firstImageUrl] can still find the image.
+     */
+    private fun appendNestedStart(sb: StringBuilder, qualifiedName: String, parser: XmlPullParser) {
+        if (sb.length >= MAX_FIELD_CHARS) return
+        when (val tag = qualifiedName.substringAfter(':')) {
+            "br" -> sb.append("<br>")
+            "img" -> parser.getAttributeValue(null, "src")?.let { src ->
+                sb.append("<img src=\"").append(src.replace("\"", "&quot;")).append("\">")
+            }
+            in BLOCK_TAGS -> sb.append('<').append(tag).append('>')
+        }
+    }
+
+    private fun appendNestedEnd(sb: StringBuilder, qualifiedName: String) {
+        if (sb.length >= MAX_FIELD_CHARS) return
+        val tag = qualifiedName.substringAfter(':')
+        if (tag in BLOCK_TAGS) sb.append("</").append(tag).append('>')
+    }
+
     /**
      * Feed-supplied image URLs are untrusted: entity-decode (CDATA HTML keeps
      * &amp; literal, breaking query strings) and allow only web schemes so a
@@ -131,6 +159,8 @@ object RssParser {
                                             ?.let { categories += it }
                                     }
                                 }
+                            } else if (parser.depth > itemDepth + 1) {
+                                text?.let { appendNestedStart(it, name, parser) }
                             }
                             // Image-bearing tags can sit at any depth (media:group wraps
                             // media:thumbnail/media:content), so check them regardless.
@@ -195,6 +225,8 @@ object RssParser {
                             }
                             currentTag = null
                             text = null
+                        } else if (inItem && parser.depth > itemDepth + 1) {
+                            text?.let { appendNestedEnd(it, name) }
                         }
                     }
                 }

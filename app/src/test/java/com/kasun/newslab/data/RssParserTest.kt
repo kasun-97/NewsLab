@@ -156,11 +156,11 @@ class RssParserTest {
         assertEquals("2026-07-20T16:00:00+05:30", entry.pubDateRaw)
         assertEquals(listOf("Markets", "Bonds"), entry.categories)
         assertEquals("https://example.org/img/1.png", entry.imageUrl)
-        // Nested xhtml text is kept, not reset by the inner tags. Current behaviour,
-        // documented: the markup itself is dropped, so block boundaries only survive
-        // where the feed has whitespace between them ("para Second" here); compact
-        // xhtml such as "<p>a</p><p>b</p>" comes out as "ab".
-        assertEquals("First bold para Second", entry.description)
+        // Nested xhtml text is kept, not reset by the inner tags; block tags are kept
+        // as markup so the later clean-up can turn them into paragraph breaks, while
+        // inline tags (<b>) are dropped.
+        assertEquals("<div><p>First bold para</p> <p>Second</p></div>", entry.description)
+        assertEquals("First bold para\n\nSecond", TextUtil.clean(entry.description))
 
         val bare = result.items[1]
         assertEquals("https://example.org/posts/2", bare.link)
@@ -169,16 +169,20 @@ class RssParserTest {
     }
 
     @Test
-    fun compactXhtmlContentLosesBlockBoundaries() {
-        // Current behaviour, documented (see atomEntryFields): adjacent block
-        // elements with no whitespace between them run together.
+    fun compactXhtmlContentKeepsBlockBoundariesAndImages() {
+        // Adjacent block elements with no whitespace between them used to run together
+        // ("OneTwo"); the blocks now survive as markup, and so does an image.
         val xml = """
             <feed xmlns="http://www.w3.org/2005/Atom"><entry>
               <title>T</title><link href="https://example.org/3"/>
-              <content type="xhtml"><div><p>One</p><p>Two</p></div></content>
+              <content type="xhtml"><div><p>One</p><p>Two<br/>Three</p><img src="https://example.org/i.png" alt=""/></div></content>
             </entry></feed>
         """
-        assertEquals("OneTwo", parse(xml).items.single().description)
+        val item = parse(xml).items.single()
+        assertEquals("<div><p>One</p><p>Two<br>Three</p><img src=\"https://example.org/i.png\"></div>", item.description)
+        // <br> is a line wrap, which clean() collapses to a space; <p> is a paragraph.
+        assertEquals("One\n\nTwo Three", TextUtil.clean(item.description))
+        assertEquals("https://example.org/i.png", item.imageUrl)
     }
 
     @Test
