@@ -523,6 +523,14 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    // ---- Share target ----
+
+    /**
+     * A snackbar message from outside the ViewModel's own actions: the share dialog
+     * reports its outcome after the app has been opened from another app's share sheet.
+     */
+    fun postMessage(text: String) = viewModelScope.launch { _messages.emit(text) }
+
     // ---- Quick-link lists ----
 
     fun addQuickLinkList(name: String) = viewModelScope.launch {

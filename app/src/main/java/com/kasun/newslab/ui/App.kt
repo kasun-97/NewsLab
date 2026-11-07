@@ -68,8 +68,13 @@ fun App(
     vm: MainViewModel,
     openArticleId: String? = null,
     onOpenArticleConsumed: () -> Unit = {},
+    share: IncomingShare? = null,
+    onShareConsumed: () -> Unit = {},
 ) {
     var tab by rememberSaveable { mutableStateOf("inbox") }
+    // The shared link the dialog is about, copied out of the one-shot [share] so the
+    // dialog outlives a rotation: the activity only reads the intent on a fresh launch.
+    var sharedUrl by rememberSaveable { mutableStateOf<String?>(null) }
     var selectedArticleId by rememberSaveable { mutableStateOf<String?>(null) }
     var showSettings by rememberSaveable { mutableStateOf(false) }
     var settingsSubScreen by rememberSaveable { mutableStateOf<String?>(null) }
@@ -207,6 +212,15 @@ fun App(
         }
     }
 
+    // A share from another app. Declared after the messages collector above, so that
+    // collector is already subscribed when the no-link message goes out: the flow has
+    // no replay, and a message emitted before it listens is simply lost.
+    LaunchedEffect(share) {
+        if (share == null) return@LaunchedEffect
+        if (share.url == null) vm.postMessage("No link found in what was shared") else sharedUrl = share.url
+        onShareConsumed()
+    }
+
     BackHandler {
         when {
             selectedArticle != null -> selectedArticleId = null
@@ -325,6 +339,29 @@ fun App(
 
         if (onboardingComplete == false) {
             OnboardingScreen(onDone = { feeds, links -> vm.completeOnboarding(feeds, links) })
+        }
+
+        // Held back until onboarding is done, so a first-run share isn't offered over
+        // the source picker; sharedUrl is saved, so it is still waiting afterwards.
+        val shareUrl = sharedUrl
+        if (shareUrl != null && onboardingComplete == true) {
+            ShareTargetDialog(
+                url = shareUrl,
+                linksEnabled = linksEnabled,
+                isSubscribed = { url -> feeds.any { it.url == url } },
+                onDiscover = { vm.discoverFeeds(it) },
+                onFetchTitle = { vm.pageTitle(it) },
+                onAddSource = { name, url ->
+                    vm.addFeed(name, url)
+                    sharedUrl = null
+                },
+                onSaveLink = { title, url ->
+                    vm.addQuickLink(title, url)
+                    vm.postMessage("Saved to Links")
+                    sharedUrl = null
+                },
+                onDismiss = { sharedUrl = null },
+            )
         }
     }
 }
