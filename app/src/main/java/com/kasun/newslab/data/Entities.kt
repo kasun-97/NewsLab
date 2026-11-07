@@ -28,6 +28,9 @@ data class Feed(
     /** Why the last refresh of this feed failed, in a few words; blank once a fetch succeeds again. */
     val lastError: String = "",
     val lastErrorAt: Long = 0,
+    /** Still fetched and shown as usual, but its keyword matches never post a notification. */
+    @ColumnInfo(defaultValue = "0")
+    val muted: Boolean = false,
 )
 
 /** A user-defined folder for organizing sources on the Feeds screen (e.g. "Local", "Markets"). */
@@ -70,6 +73,9 @@ data class KeywordRule(
     val label: String,
     val query: String,
     val enabled: Boolean = true,
+    /** False keeps pinning this rule's matches but never notifies about them. */
+    @ColumnInfo(defaultValue = "1")
+    val notify: Boolean = true,
 )
 
 /**
@@ -146,6 +152,15 @@ data class Article(
     val matchedLabels: String,
     val isRead: Boolean = false,
     val isSaved: Boolean = false,
+    /**
+     * Whether this match's alert has been posted (or deliberately never will be).
+     * Kept on the row rather than in memory so an alert held back, e.g. by quiet hours,
+     * survives the process dying before it is posted. The SQL default of 1 is what the
+     * 16->17 migration backfills: rows from before it were notified, if ever, under the
+     * old rules and must not fire again.
+     */
+    @ColumnInfo(defaultValue = "1")
+    val alertNotified: Boolean = false,
 ) {
     /** The image to render: the article page's own, falling back to whatever the feed carried. */
     val displayImageUrl: String get() = pageImageUrl.ifBlank { imageUrl }

@@ -84,6 +84,11 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     val linksEnabled = prefs.linksEnabled.state(true)
     val articleStats = dao.articleStats().state(ArticleStats(0, 0, 0, 0))
     val lastRefreshAt = prefs.lastRefreshAt.state(0L)
+    val digestNotifications = prefs.digestNotifications.state(false)
+    val quietHoursEnabled = prefs.quietHoursEnabled.state(false)
+    val quietHoursStartMinutes = prefs.quietHoursStartMinutes.state(Prefs.DEFAULT_QUIET_START_MINUTES)
+    val quietHoursEndMinutes = prefs.quietHoursEndMinutes.state(Prefs.DEFAULT_QUIET_END_MINUTES)
+    val prefetchAlertBodies = prefs.prefetchAlertBodies.state(true)
 
     // Articles from disabled sources are hidden, except ones the user saved.
     //
@@ -245,6 +250,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     fun toggleFeed(feed: Feed) = viewModelScope.launch {
         dao.updateFeed(feed.copy(enabled = !feed.enabled))
+    }
+
+    fun toggleFeedMuted(feed: Feed) = viewModelScope.launch {
+        dao.setFeedMuted(feed.id, !feed.muted)
     }
 
     fun updateFeed(feed: Feed, name: String, url: String, groupIds: Set<Long>) = viewModelScope.launch {
@@ -503,6 +512,11 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         repo.reclassifyAll()
     }
 
+    // Notify only decides whether a match alerts, not whether it matches: no reclassify.
+    fun toggleRuleNotify(rule: KeywordRule) = viewModelScope.launch {
+        dao.setRuleNotify(rule.id, !rule.notify)
+    }
+
     fun deleteRule(rule: KeywordRule) = viewModelScope.launch {
         dao.deleteRule(rule)
         repo.reclassifyAll()
@@ -580,6 +594,26 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     fun setLinksEnabled(enabled: Boolean) = viewModelScope.launch {
         prefs.setLinksEnabled(enabled)
+    }
+
+    fun setDigestNotifications(enabled: Boolean) = viewModelScope.launch {
+        prefs.setDigestNotifications(enabled)
+    }
+
+    fun setQuietHoursEnabled(enabled: Boolean) = viewModelScope.launch {
+        prefs.setQuietHoursEnabled(enabled)
+    }
+
+    fun setQuietHoursStartMinutes(minutes: Int) = viewModelScope.launch {
+        prefs.setQuietHoursStartMinutes(minutes)
+    }
+
+    fun setQuietHoursEndMinutes(minutes: Int) = viewModelScope.launch {
+        prefs.setQuietHoursEndMinutes(minutes)
+    }
+
+    fun setPrefetchAlertBodies(enabled: Boolean) = viewModelScope.launch {
+        prefs.setPrefetchAlertBodies(enabled)
     }
 
     /** Finishes the first-run intro: adds the chosen feeds and records the section choices. */

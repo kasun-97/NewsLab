@@ -33,6 +33,9 @@ data class ClassificationUpdate(
     val matchedLabels: String,
 )
 
+/** For the Statistics trend: when each match was published and which rules it hit. */
+data class AlertMatchRow(val publishedAt: Long, val matchedRules: String)
+
 @Dao
 interface NewsDao {
 
@@ -135,6 +138,20 @@ interface NewsDao {
     @Query("DELETE FROM articles WHERE id = :id")
     suspend fun deleteArticle(id: String)
 
+    // ---- Alerts ----
+
+    /** Matched articles whose alert has not been posted yet, oldest first. */
+    @Query("SELECT * FROM articles WHERE matchedRules != '' AND alertNotified = 0 ORDER BY publishedAt")
+    suspend fun unnotifiedAlerts(): List<Article>
+
+    // One bound variable per id, and SQLite caps those at 999 on older devices:
+    // callers chunk (a first refresh against a broad rule can match hundreds).
+    @Query("UPDATE articles SET alertNotified = 1 WHERE id IN (:ids)")
+    suspend fun markAlertsNotified(ids: List<String>)
+
+    @Query("SELECT publishedAt, matchedRules FROM articles WHERE matchedRules != '' AND publishedAt >= :since")
+    suspend fun alertMatchesSince(since: Long): List<AlertMatchRow>
+
     // Alert-matched articles are exempt here and pruned on their own, longer window below.
     @Query("DELETE FROM articles WHERE isSaved = 0 AND matchedRules = '' AND publishedAt < :cutoff")
     suspend fun pruneOlderThan(cutoff: Long)
@@ -168,6 +185,14 @@ interface NewsDao {
 
     @Query("DELETE FROM article_content WHERE id = :id")
     suspend fun deleteArticleContent(id: String)
+
+    /**
+     * Articles among the given ids that have no cached body yet (for pre-fetching).
+     * One bound variable per id, and SQLite caps those at 999 on older devices: callers
+     * passing more than a few hundred ids must chunk.
+     */
+    @Query("SELECT a.* FROM articles a WHERE a.id IN (:ids) AND a.id NOT IN (SELECT id FROM article_content)")
+    suspend fun articlesWithoutContent(ids: List<String>): List<Article>
 
     /** Drops cached bodies whose article has been pruned or deleted. */
     @Query("DELETE FROM article_content WHERE id NOT IN (SELECT id FROM articles)")
@@ -249,6 +274,10 @@ interface NewsDao {
     /** Keeps the reason a fetch failed on the row, for the Sources screen. */
     @Query("UPDATE feeds SET lastError = :reason, lastErrorAt = :at WHERE id = :id")
     suspend fun recordFeedError(id: Long, reason: String, at: Long)
+
+    // Single-column, like the other flag writes, so a toggle can't revert a concurrent edit.
+    @Query("UPDATE feeds SET muted = :muted WHERE id = :id")
+    suspend fun setFeedMuted(id: Long, muted: Boolean)
 
     @Delete
     suspend fun deleteFeed(feed: Feed)
@@ -341,6 +370,9 @@ interface NewsDao {
 
     @Update
     suspend fun updateRule(rule: KeywordRule)
+
+    @Query("UPDATE keyword_rules SET notify = :notify WHERE id = :id")
+    suspend fun setRuleNotify(id: Long, notify: Boolean)
 
     @Delete
     suspend fun deleteRule(rule: KeywordRule)

@@ -3,6 +3,7 @@ package com.kasun.newslab.data
 import android.content.Context
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
@@ -49,8 +50,17 @@ class Prefs private constructor(private val context: Context) {
         private val ONBOARDING_DONE = booleanPreferencesKey("onboarding_complete")
         private val LINKS_ENABLED = booleanPreferencesKey("links_enabled")
         private val LAST_REFRESH_AT = longPreferencesKey("last_refresh_at")
+        private val DIGEST_NOTIFICATIONS = booleanPreferencesKey("digest_notifications")
+        private val QUIET_HOURS_ENABLED = booleanPreferencesKey("quiet_hours_enabled")
+        private val QUIET_HOURS_START = intPreferencesKey("quiet_hours_start")
+        private val QUIET_HOURS_END = intPreferencesKey("quiet_hours_end")
+        private val PREFETCH_ALERT_BODIES = booleanPreferencesKey("prefetch_alert_bodies")
 
         const val DEFAULT_REFRESH_MINUTES = 15L
+
+        /** Quiet hours default to 22:00 to 07:00, stored as minutes after midnight. */
+        const val DEFAULT_QUIET_START_MINUTES = 22 * 60
+        const val DEFAULT_QUIET_END_MINUTES = 7 * 60
 
         @Volatile
         private var instance: Prefs? = null
@@ -188,5 +198,48 @@ class Prefs private constructor(private val context: Context) {
 
     suspend fun setLastRefreshAt(time: Long) {
         context.dataStore.edit { it[LAST_REFRESH_AT] = time }
+    }
+
+    /** When on, several alerts from one refresh arrive as a single summary notification. */
+    val digestNotifications: Flow<Boolean> =
+        context.dataStore.data.map { it[DIGEST_NOTIFICATIONS] ?: false }
+
+    suspend fun setDigestNotifications(enabled: Boolean) {
+        context.dataStore.edit { it[DIGEST_NOTIFICATIONS] = enabled }
+    }
+
+    /** When on, alerts falling inside the quiet window are held and posted after it. */
+    val quietHoursEnabled: Flow<Boolean> =
+        context.dataStore.data.map { it[QUIET_HOURS_ENABLED] ?: false }
+
+    suspend fun setQuietHoursEnabled(enabled: Boolean) {
+        context.dataStore.edit { it[QUIET_HOURS_ENABLED] = enabled }
+    }
+
+    /** Start of the quiet window, in minutes after local midnight. */
+    val quietHoursStartMinutes: Flow<Int> =
+        context.dataStore.data.map { it[QUIET_HOURS_START] ?: DEFAULT_QUIET_START_MINUTES }
+
+    suspend fun setQuietHoursStartMinutes(minutes: Int) {
+        context.dataStore.edit { it[QUIET_HOURS_START] = minutes }
+    }
+
+    /** End of the quiet window, in minutes after local midnight; may be before the start (overnight). */
+    val quietHoursEndMinutes: Flow<Int> =
+        context.dataStore.data.map { it[QUIET_HOURS_END] ?: DEFAULT_QUIET_END_MINUTES }
+
+    suspend fun setQuietHoursEndMinutes(minutes: Int) {
+        context.dataStore.edit { it[QUIET_HOURS_END] = minutes }
+    }
+
+    /**
+     * When on, a background refresh on an unmetered network caches the bodies of new
+     * alert matches, so they open offline and are covered by full-text search.
+     */
+    val prefetchAlertBodies: Flow<Boolean> =
+        context.dataStore.data.map { it[PREFETCH_ALERT_BODIES] ?: true }
+
+    suspend fun setPrefetchAlertBodies(enabled: Boolean) {
+        context.dataStore.edit { it[PREFETCH_ALERT_BODIES] = enabled }
     }
 }

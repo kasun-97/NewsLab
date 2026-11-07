@@ -14,7 +14,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         ArticleContent::class, QuickLink::class,
         QuickLinkList::class,
     ],
-    version = 16,
+    version = 17,
     exportSchema = true,
 )
 abstract class AppDb : RoomDatabase() {
@@ -211,12 +211,60 @@ abstract class AppDb : RoomDatabase() {
             }
         }
 
+        /**
+         * Full-text index over cached article bodies, for searching what an article says
+         * and not just its headline. Room has no entity for it (it is queried through the
+         * raw connection), so these statements run both in migration 16->17 and in
+         * [Seed] on a fresh install, where Room only creates its own tables.
+         *
+         * An external-content table keeps no second copy of the text, so the triggers
+         * must keep it in step. FTS4 reads a row's old text back from article_content to
+         * know which terms to drop, which is why every delete from the index happens
+         * BEFORE the row changes, as the SQLite FTS4 documentation lays out; an AFTER
+         * trigger finds the new text (or none) and leaves stale terms that later match
+         * the wrong article. The BEFORE INSERT trigger covers the cache's
+         * INSERT OR REPLACE, whose implicit delete of the old row fires no delete trigger.
+         */
+        private val CREATE_CONTENT_FTS = listOf(
+            "CREATE VIRTUAL TABLE IF NOT EXISTS article_content_fts " +
+                "USING fts4(content=\"article_content\", text, tokenize=unicode61)",
+            "CREATE TRIGGER IF NOT EXISTS article_content_fts_bi BEFORE INSERT ON article_content BEGIN " +
+                "DELETE FROM article_content_fts WHERE docid IN " +
+                "(SELECT rowid FROM article_content WHERE id = new.id); END",
+            "CREATE TRIGGER IF NOT EXISTS article_content_fts_ai AFTER INSERT ON article_content BEGIN " +
+                "INSERT INTO article_content_fts(docid, text) VALUES (new.rowid, new.text); END",
+            "CREATE TRIGGER IF NOT EXISTS article_content_fts_bd BEFORE DELETE ON article_content BEGIN " +
+                "DELETE FROM article_content_fts WHERE docid = old.rowid; END",
+            "CREATE TRIGGER IF NOT EXISTS article_content_fts_bu BEFORE UPDATE ON article_content BEGIN " +
+                "DELETE FROM article_content_fts WHERE docid = old.rowid; END",
+            "CREATE TRIGGER IF NOT EXISTS article_content_fts_au AFTER UPDATE ON article_content BEGIN " +
+                "INSERT INTO article_content_fts(docid, text) VALUES (new.rowid, new.text); END",
+            // Indexes the bodies already cached when the table is created.
+            "INSERT INTO article_content_fts(article_content_fts) VALUES ('rebuild')",
+        )
+
+        /**
+         * Notification controls (per-rule notify, per-source mute) and the flag that
+         * drives alerts from the database instead of an in-memory list. alertNotified
+         * backfills as 1: matches stored before this version were already alerted, if
+         * at all, and must not fire again on the first refresh after the upgrade. Also
+         * creates the full-text index over cached bodies.
+         */
+        private val MIGRATION_16_17 = object : Migration(16, 17) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE keyword_rules ADD COLUMN notify INTEGER NOT NULL DEFAULT 1")
+                db.execSQL("ALTER TABLE feeds ADD COLUMN muted INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE articles ADD COLUMN alertNotified INTEGER NOT NULL DEFAULT 1")
+                CREATE_CONTENT_FTS.forEach { db.execSQL(it) }
+            }
+        }
+
         /** Every migration in order; [get] registers these, and the migration test runs them. */
         internal val ALL_MIGRATIONS: Array<Migration> = arrayOf(
             MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6,
             MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10,
             MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14,
-            MIGRATION_14_15, MIGRATION_15_16,
+            MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17,
         )
 
         fun get(context: Context): AppDb = instance ?: synchronized(this) {
@@ -260,6 +308,8 @@ abstract class AppDb : RoomDatabase() {
             // that used to ship here are one reader's bookmarks, not a sensible default
             // for everyone. The list itself has to exist, since links file into it.
             db.execSQL(SEED_DEFAULT_LIST)
+            // Room creates only its entities' tables; the full-text index is raw SQL.
+            CREATE_CONTENT_FTS.forEach { db.execSQL(it) }
         }
     }
 }

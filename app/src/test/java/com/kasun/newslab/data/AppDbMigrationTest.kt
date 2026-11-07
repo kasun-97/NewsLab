@@ -37,10 +37,13 @@ class AppDbMigrationTest {
         val name = "migration-v1.db"
         createVersion1(name)
 
-        val db = helper.runMigrationsAndValidate(name, 16, true, *AppDb.ALL_MIGRATIONS)
+        // validateDroppedTables is off because it rejects any table Room has no entity for,
+        // and the full-text index is deliberately raw SQL. The same check is made below
+        // with that index and its FTS4 shadow tables allowed.
+        val db = helper.runMigrationsAndValidate(name, 17, false, *AppDb.ALL_MIGRATIONS)
 
         // Seeded v1 rows survive, with the columns added since then at their defaults.
-        db.query("SELECT name, url, color, enabled, isAtom, etag, lastModified, lastFetchedAt, lastError, lastErrorAt FROM feeds WHERE id = 7").use {
+        db.query("SELECT name, url, color, enabled, isAtom, etag, lastModified, lastFetchedAt, lastError, lastErrorAt, muted FROM feeds WHERE id = 7").use {
             assertEquals(1, it.count)
             it.moveToFirst()
             assertEquals("Daily FT", it.getString(0))
@@ -53,10 +56,12 @@ class AppDbMigrationTest {
             assertEquals(0L, it.getLong(7))
             assertEquals("", it.getString(8))
             assertEquals(0L, it.getLong(9))
+            assertEquals(0, it.getInt(10))
         }
         assertEquals(1L, scalar(db, "SELECT COUNT(*) FROM categories WHERE name = 'Economy' AND keywords = 'gdp,imf' AND position = 0"))
-        assertEquals(1L, scalar(db, "SELECT COUNT(*) FROM keyword_rules WHERE label = 'IMF' AND query = 'imf' AND enabled = 1"))
-        db.query("SELECT feedId, title, imageUrl, pageImageUrl, isRead, isSaved FROM articles WHERE id = 'a1'").use {
+        assertEquals(1L, scalar(db, "SELECT COUNT(*) FROM keyword_rules WHERE label = 'IMF' AND query = 'imf' AND enabled = 1 AND notify = 1"))
+        // An existing match counts as already notified, so the upgrade can't re-fire it.
+        db.query("SELECT feedId, title, imageUrl, pageImageUrl, isRead, isSaved, alertNotified FROM articles WHERE id = 'a1'").use {
             assertEquals(1, it.count)
             it.moveToFirst()
             assertEquals(7L, it.getLong(0))
@@ -65,6 +70,7 @@ class AppDbMigrationTest {
             assertEquals("", it.getString(3))
             assertEquals(0, it.getInt(4))
             assertEquals(1, it.getInt(5))
+            assertEquals(1, it.getInt(6))
         }
         // The v1 feed had no group, so 3->4 carried no membership across.
         assertEquals(0L, scalar(db, "SELECT COUNT(*) FROM feed_group_members"))
@@ -74,16 +80,64 @@ class AppDbMigrationTest {
         assertEquals(3L, scalar(db, "SELECT COUNT(*) FROM quick_links WHERE listId = 1"))
         assertEquals(3L, scalar(db, "SELECT COUNT(*) FROM quick_links"))
 
-        // Tables added and later dropped are gone.
+        // Tables added and later dropped are gone, and nothing else is left over.
         assertFalse(tableExists(db, "macro_indicators"))
         assertFalse(tableExists(db, "cse_announcements"))
+        val expectedTables = setOf(
+            "feeds", "categories", "keyword_rules", "articles", "feed_groups",
+            "feed_group_members", "article_content", "quick_links", "quick_link_lists",
+            "room_master_table", "android_metadata", "sqlite_sequence",
+            "article_content_fts", "article_content_fts_segments", "article_content_fts_segdir",
+            "article_content_fts_docsize", "article_content_fts_stat",
+        )
+        val tables = db.query("SELECT name FROM sqlite_master WHERE type = 'table'").use { cursor ->
+            buildSet { while (cursor.moveToNext()) add(cursor.getString(0)) }
+        }
+        assertEquals(emptySet<String>(), tables - expectedTables)
+
+        // 16->17 adds the full-text index over cached bodies, which Room doesn't validate.
+        assertContentFtsInstalled(db)
         db.close()
+    }
+
+    @Test
+    fun freshInstallCreatesTheContentIndexAndKeepsItInStep() {
+        // Room builds a fresh install from the entities alone; the index comes from Seed.
+        val context = RuntimeEnvironment.getApplication()
+        try {
+            val db = AppDb.get(context).openHelper.writableDatabase
+            assertContentFtsInstalled(db)
+
+            // The body cache writes with INSERT OR REPLACE (Room's REPLACE strategy).
+            db.execSQL("INSERT OR REPLACE INTO article_content (id, text, fetchedAt) VALUES ('a', 'central bank holds rates', 1)")
+            db.execSQL("INSERT OR REPLACE INTO article_content (id, text, fetchedAt) VALUES ('a', 'treasury bill auction', 2)")
+            assertEquals(emptySet<String>(), bodyMatches(db, "rates"))
+            assertEquals(setOf("a"), bodyMatches(db, "auction"))
+
+            db.execSQL("UPDATE article_content SET text = 'rupee steadies' WHERE id = 'a'")
+            assertEquals(emptySet<String>(), bodyMatches(db, "auction"))
+            assertEquals(setOf("a"), bodyMatches(db, "rupee"))
+
+            // No earlier body's terms may attach to whichever row takes a freed rowid next.
+            db.execSQL("DELETE FROM article_content WHERE id = 'a'")
+            db.execSQL("INSERT OR REPLACE INTO article_content (id, text, fetchedAt) VALUES ('b', 'tea exports rise', 3)")
+            for (stale in listOf("rates", "auction", "rupee")) {
+                assertEquals(stale, emptySet<String>(), bodyMatches(db, stale))
+            }
+            assertEquals(setOf("b"), bodyMatches(db, "tea"))
+
+            // Throws if the index disagrees with the content table.
+            db.execSQL("INSERT INTO article_content_fts(article_content_fts) VALUES ('integrity-check')")
+        } finally {
+            AppDb.close()
+            context.deleteDatabase("newslab.db")
+        }
     }
 
     @Test
     fun freshInstallSchemaIsSelfConsistent() {
         // Runs the exported schema's own CREATE statements; throws if the JSON is missing or bad.
-        val db = helper.createDatabase("fresh-v16.db", 16)
+        val db = helper.createDatabase("fresh-v17.db", 17)
         for (table in listOf(
             "feeds", "categories", "keyword_rules", "articles", "feed_groups",
             "feed_group_members", "article_content", "quick_links", "quick_link_lists",
@@ -149,6 +203,29 @@ class AppDbMigrationTest {
             )
         }
     }
+
+    private fun assertContentFtsInstalled(db: SupportSQLiteDatabase) {
+        assertTrue(tableExists(db, "article_content_fts"))
+        for (trigger in listOf(
+            "article_content_fts_bi", "article_content_fts_ai", "article_content_fts_bd",
+            "article_content_fts_bu", "article_content_fts_au",
+        )) {
+            assertEquals(
+                "missing trigger $trigger",
+                1L,
+                scalar(db, "SELECT COUNT(*) FROM sqlite_master WHERE type = 'trigger' AND name = '$trigger'"),
+            )
+        }
+    }
+
+    private fun bodyMatches(db: SupportSQLiteDatabase, match: String): Set<String> =
+        db.query(
+            "SELECT c.id FROM article_content c WHERE c.rowid IN " +
+                "(SELECT docid FROM article_content_fts WHERE article_content_fts MATCH ?)",
+            arrayOf(match),
+        ).use { cursor ->
+            buildSet { while (cursor.moveToNext()) add(cursor.getString(0)) }
+        }
 
     private fun scalar(db: SupportSQLiteDatabase, sql: String): Long =
         db.query(sql).use { it.moveToFirst(); it.getLong(0) }

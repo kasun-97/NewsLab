@@ -108,6 +108,8 @@ class Repository(private val context: Context) {
         val added: Int,
         val attempted: Int,
         val failedFeeds: List<FeedFailure>,
+        /** Articles inserted this pass that matched a keyword rule, for pre-fetching their bodies. */
+        val newAlertIds: List<String> = emptyList(),
     )
 
     /**
@@ -137,7 +139,7 @@ class Repository(private val context: Context) {
             }
 
             var inserted = 0
-            val newAlerts = mutableListOf<Article>()
+            val newAlertIds = mutableListOf<String>()
             val failedFeeds = mutableListOf<FeedFailure>()
 
             for ((feed, fetch) in fetches) {
@@ -182,7 +184,7 @@ class Repository(private val context: Context) {
                         val built = articles[index]
                         if (rowId != -1L) {
                             inserted++
-                            if (built.matchedRules.isNotEmpty()) newAlerts += built
+                            if (built.matchedRules.isNotEmpty()) newAlertIds += built.id
                         } else {
                             // Already stored — pick up richer text a feed may now offer
                             // (e.g. this parser used to prefer a short excerpt over the
@@ -239,14 +241,26 @@ class Repository(private val context: Context) {
             // doesn't outgrow the article list it mirrors.
             dao.pruneOrphanContent()
 
-            if (notify && newAlerts.isNotEmpty()) {
-                Notifier.notifyMatches(context, newAlerts)
+            // Driven by the alertNotified flag rather than this pass's inserts, so an alert
+            // left pending (by a pass that died before this point, say) is still posted.
+            // A pass that doesn't notify (an in-app refresh, or notifications switched
+            // off) still marks what it found, as before: those matches were never going
+            // to alert, and must not surface later as a burst of stale notifications.
+            val pending = dao.unnotifiedAlerts()
+            if (pending.isNotEmpty()) {
+                if (notify) Notifier.notifyMatches(context, pending)
+                pending.map { it.id }.chunked(500).forEach { dao.markAlertsNotified(it) }
             }
             // Stamped for every completed pass, not just ones that found new
             // articles — this is what Settings' "last refreshed" reflects, so a
             // quiet feed shouldn't make background refresh look like it stopped.
             Prefs.get(context).setLastRefreshAt(now)
-            RefreshResult(added = inserted, attempted = feeds.size, failedFeeds = failedFeeds)
+            RefreshResult(
+                added = inserted,
+                attempted = feeds.size,
+                failedFeeds = failedFeeds,
+                newAlertIds = newAlertIds,
+            )
         }
     }
 
@@ -339,6 +353,10 @@ class Repository(private val context: Context) {
                     categoryIds = classification.categoryIds,
                     matchedRules = classification.ruleIds,
                     matchedLabels = classification.ruleLabels,
+                    // Only a match starts out pending. A row stored unmatched counts as
+                    // notified, so a rule added later that reclassifies it into a match
+                    // pins it without alerting about an old story.
+                    alertNotified = classification.ruleIds.isEmpty(),
                 )
             }
                 .filter { it.title.isNotBlank() }
