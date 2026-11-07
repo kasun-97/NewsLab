@@ -253,8 +253,16 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             cleanUrl.removePrefix("https://").removePrefix("http://")
                 .removePrefix("www.").substringBefore('/')
         }
+        // A new address means the stored validators describe some other document;
+        // sending them could earn a bogus 304 and never fetch the new feed.
+        val validatorsStillValid = cleanUrl == feed.url
         dao.updateFeedWithGroups(
-            feed.copy(name = display, url = cleanUrl),
+            feed.copy(
+                name = display,
+                url = cleanUrl,
+                etag = if (validatorsStillValid) feed.etag else "",
+                lastModified = if (validatorsStillValid) feed.lastModified else "",
+            ),
             renameArticles = display != feed.name,
             groupIds = groupIds,
         )

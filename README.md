@@ -61,7 +61,8 @@ reorderable lists.
 **Background and data**
 
 - WorkManager refreshes every 15 minutes, 30 minutes, 1, 2 or 4 hours on any network and
-  posts a high-priority notification for new keyword matches.
+  posts a high-priority notification for new keyword matches. Fetches are conditional
+  (`If-None-Match` / `If-Modified-Since`), so an unchanged feed costs a 304 and no download.
 - Unsaved articles are pruned after 14 days, keyword-alert matches after 90 days. Saved
   articles are never pruned.
 - Backup to a single SQLite file, or a zip that also carries the cached thumbnails;

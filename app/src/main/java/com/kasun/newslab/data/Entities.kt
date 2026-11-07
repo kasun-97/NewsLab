@@ -16,6 +16,13 @@ data class Feed(
     val enabled: Boolean = true,
     /** Detected from the feed's root element (<feed> vs <rss>/<rdf>) on the first successful fetch. */
     val isAtom: Boolean = false,
+    /**
+     * Validators from the last successful fetch, sent back as If-None-Match and
+     * If-Modified-Since so an unchanged feed answers 304 with no body. Blank when the
+     * server sent none; reset when the URL changes.
+     */
+    val etag: String = "",
+    val lastModified: String = "",
 )
 
 /** A user-defined folder for organizing sources on the Feeds screen (e.g. "Local", "Markets"). */

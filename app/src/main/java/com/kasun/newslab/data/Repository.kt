@@ -136,10 +136,16 @@ class Repository(private val context: Context) {
                     failedFeeds += feed.name
                     continue
                 }
+                // The server confirmed nothing changed since the validators we sent:
+                // nothing to insert, and the stored validators are still the right ones.
+                if (outcome.notModified) continue
                 // Persisted on every successful fetch, not just ones with new
                 // articles — detecting the format doesn't need fresh content.
                 if (outcome.isAtom != feed.isAtom) {
                     dao.updateFeedIsAtom(feed.id, outcome.isAtom)
+                }
+                if (outcome.etag != feed.etag || outcome.lastModified != feed.lastModified) {
+                    dao.updateFeedValidators(feed.id, outcome.etag, outcome.lastModified)
                 }
                 val articles = outcome.articles
                 if (articles.isEmpty()) continue
@@ -225,8 +231,19 @@ class Repository(private val context: Context) {
         }
     }
 
-    /** A feed's fetch result: its ready-to-insert articles plus the format detected while parsing. */
-    private data class FetchOutcome(val articles: List<Article>, val isAtom: Boolean)
+    /**
+     * A feed's fetch result: its ready-to-insert articles, the format detected while
+     * parsing, and the validators to send next time. [notModified] marks a 304: the
+     * body was never sent, so [articles] is empty and the other fields are the feed's
+     * stored values.
+     */
+    private data class FetchOutcome(
+        val articles: List<Article>,
+        val isAtom: Boolean,
+        val etag: String = "",
+        val lastModified: String = "",
+        val notModified: Boolean = false,
+    )
 
     /**
      * Fetches and parses one feed into ready-to-insert articles.
@@ -248,8 +265,18 @@ class Repository(private val context: Context) {
             .url(feed.url)
             .header("User-Agent", Http.USER_AGENT)
             .header("Accept", "application/rss+xml, application/xml, text/xml, */*")
+            .apply {
+                // Conditional request: with the validators from the last fetch, an
+                // unchanged feed answers 304 and sends no body. Most of a polling
+                // reader's traffic is feeds that haven't changed.
+                if (feed.etag.isNotBlank()) header("If-None-Match", feed.etag)
+                if (feed.lastModified.isNotBlank()) header("If-Modified-Since", feed.lastModified)
+            }
             .build()
         client.newCall(request).execute().use { response ->
+            if (response.code == HTTP_NOT_MODIFIED) {
+                return@use FetchOutcome(emptyList(), feed.isAtom, feed.etag, feed.lastModified, notModified = true)
+            }
             val body = response.body
             if (!response.isSuccessful || body == null) return@use null
 
@@ -285,7 +312,12 @@ class Repository(private val context: Context) {
             }
                 .filter { it.title.isNotBlank() }
                 .filter { it.publishedAt >= cutoff || (it.matchedRules.isNotEmpty() && it.publishedAt >= alertCutoff) }
-            FetchOutcome(articles, parsed.isAtom)
+            FetchOutcome(
+                articles,
+                parsed.isAtom,
+                etag = response.header("ETag").orEmpty(),
+                lastModified = response.header("Last-Modified").orEmpty(),
+            )
         }
     } catch (e: CancellationException) {
         throw e
@@ -400,6 +432,7 @@ class Repository(private val context: Context) {
         /** Unsaved keyword-rule matches are kept this long; saved articles are never pruned. */
         const val ALERT_KEEP_DAYS = 90
         const val HTML_HEAD_PEEK_BYTES = 65_536L
+        const val HTTP_NOT_MODIFIED = 304
         const val MAX_FEED_BYTES = 5 * 1024 * 1024
         val metaTag = Regex("""<meta\s+[^>]*>""", RegexOption.IGNORE_CASE)
         val ogImageProperty = Regex("""property=["']og:image["']""", RegexOption.IGNORE_CASE)

@@ -238,6 +238,10 @@ interface NewsDao {
     @Query("UPDATE feeds SET isAtom = :isAtom WHERE id = :id")
     suspend fun updateFeedIsAtom(id: Long, isAtom: Boolean)
 
+    /** Records the ETag / Last-Modified a successful fetch returned (blank clears a stale one). */
+    @Query("UPDATE feeds SET etag = :etag, lastModified = :lastModified WHERE id = :id")
+    suspend fun updateFeedValidators(id: Long, etag: String, lastModified: String)
+
     @Delete
     suspend fun deleteFeed(feed: Feed)
 
