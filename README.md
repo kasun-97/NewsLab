@@ -1,5 +1,7 @@
 # NewsLab
 
+[![Android CI](https://github.com/kasun-97/NewsLab/actions/workflows/android.yml/badge.svg)](https://github.com/kasun-97/NewsLab/actions/workflows/android.yml)
+
 A priority-inbox RSS reader for Android, written in Kotlin with Jetpack Compose.
 Articles that match your keyword rules are pinned to the top of the inbox; everything
 else flows into a day-grouped timeline where the same story from several outlets
@@ -81,9 +83,11 @@ JetBrains Runtime 21 that Gradle fetches automatically.
 | Compose BOM | 2024.12.01 |
 | Min / target SDK | 26 / 35 |
 
-`assembleRelease` is minified with R8 and produces an *unsigned* APK; no signing config is
-checked in. A `profiling` build type gives release code signed with the debug key for
-on-device performance checks.
+Signed APKs for each version are on the [Releases](https://github.com/kasun-97/NewsLab/releases)
+page. `assembleRelease` is minified with R8; it signs the APK only if an untracked
+`keystore.properties` (storeFile, storePassword, keyPassword, keyAlias) is present at the repo
+root, and otherwise produces an unsigned APK. A `profiling` build type gives release code
+signed with the debug key for on-device performance checks.
 
 The one automated test is an instrumented render of the share card. Run it with a device
 attached:
