@@ -103,8 +103,9 @@ root, and otherwise produces an unsigned APK. A `profiling` build type gives rel
 signed with the debug key for on-device performance checks.
 
 JVM unit tests cover the pure logic: keyword rules and categories, story clustering, robots.txt
-parsing, text cleaning and date parsing, the RSS/Atom parser and OPML import/export (the last three
-under Robolectric, so no device is needed). CI runs them on pushes and pull requests to `main`:
+parsing, text cleaning and date parsing, the RSS/Atom parser, OPML import/export and the full Room
+migration chain against the exported schema in `app/schemas/` (the last four under Robolectric, so
+no device is needed). CI runs them on pushes and pull requests to `main`:
 
 ```bash
 ./gradlew :app:testDebugUnitTest
