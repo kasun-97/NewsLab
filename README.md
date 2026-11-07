@@ -78,8 +78,10 @@ source (the feed is discovered for you) or save the page to Links.
 **Background and data**
 
 - WorkManager refreshes every 15 minutes, 30 minutes, 1, 2 or 4 hours on any network and
-  posts a high-priority notification for new keyword matches. Fetches are conditional
-  (`If-None-Match` / `If-Modified-Since`), so an unchanged feed costs a 304 and no download.
+  posts a high-priority notification for new keyword matches. When a check finds more
+  than five, the newest five get one each and the rest share a single summary. Fetches
+  are conditional (`If-None-Match` / `If-Modified-Since`), so an unchanged feed costs a
+  304 and no download.
 - Settings > Notifications: **Digest notification** (off by default) posts one summary
   listing the matches when a check finds several, instead of one notification each.
   **Quiet hours** (off by default; 22:00 to 07:00 when first switched on, both editable)
@@ -126,10 +128,13 @@ page. `assembleRelease` is minified with R8; it signs the APK only if an untrack
 root, and otherwise produces an unsigned APK. A `profiling` build type gives release code
 signed with the debug key for on-device performance checks.
 
-JVM unit tests cover the pure logic: keyword rules and categories, story clustering, robots.txt
-parsing, text cleaning and date parsing, the RSS/Atom parser, OPML import/export and the full Room
-migration chain against the exported schema in `app/schemas/` (the last four under Robolectric, so
-no device is needed). CI runs them on pushes and pull requests to `main`:
+JVM unit tests cover the pure logic: keyword rules (including exclusions) and categories, story
+clustering, robots.txt parsing, text cleaning and date parsing, the RSS/Atom parser, OPML
+import/export, the full Room migration chain against the exported schema in `app/schemas/`, the
+alert policy (muting, quiet hours, digests), the matches chart, body-search queries, the problems
+list, pre-fetch selection, saved export and shared-link parsing. Tests that need Android classes or
+a database run under Robolectric, so no device is needed. CI runs them on pushes and pull requests
+to `main`:
 
 ```bash
 ./gradlew :app:testDebugUnitTest
