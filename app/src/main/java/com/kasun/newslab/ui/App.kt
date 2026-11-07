@@ -45,6 +45,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.listSaver
@@ -345,23 +346,27 @@ fun App(
         // the source picker; sharedUrl is saved, so it is still waiting afterwards.
         val shareUrl = sharedUrl
         if (shareUrl != null && onboardingComplete == true) {
-            ShareTargetDialog(
-                url = shareUrl,
-                linksEnabled = linksEnabled,
-                isSubscribed = { url -> feeds.any { it.url == url } },
-                onDiscover = { vm.discoverFeeds(it) },
-                onFetchTitle = { vm.pageTitle(it) },
-                onAddSource = { name, url ->
-                    vm.addFeed(name, url)
-                    sharedUrl = null
-                },
-                onSaveLink = { title, url ->
-                    vm.addQuickLink(title, url)
-                    vm.postMessage("Saved to Links")
-                    sharedUrl = null
-                },
-                onDismiss = { sharedUrl = null },
-            )
+            // Keyed on the link: a second share arriving while the dialog is open must
+            // start afresh, not inherit the first link's stage and discovered feeds.
+            key(shareUrl) {
+                ShareTargetDialog(
+                    url = shareUrl,
+                    linksEnabled = linksEnabled,
+                    isSubscribed = { url -> feeds.any { it.url == url } },
+                    onDiscover = { vm.discoverFeeds(it) },
+                    onFetchTitle = { vm.pageTitle(it) },
+                    onAddSource = { name, url ->
+                        vm.addFeed(name, url)
+                        sharedUrl = null
+                    },
+                    onSaveLink = { title, url ->
+                        vm.addQuickLink(title, url)
+                        vm.postMessage("Saved to Links")
+                        sharedUrl = null
+                    },
+                    onDismiss = { sharedUrl = null },
+                )
+            }
         }
     }
 }

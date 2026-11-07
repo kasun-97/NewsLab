@@ -39,11 +39,18 @@ object Notifier {
             ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) ==
             PackageManager.PERMISSION_GRANTED
 
+    /**
+     * One notification per match for the newest few; any beyond the cap (a batch held
+     * through quiet hours, the first pass after a long gap) share one summary, since
+     * the caller marks the whole batch notified.
+     */
     @SuppressLint("MissingPermission")
     fun notifyMatches(context: Context, articles: List<Article>) {
         if (!canPost(context)) return
         val manager = NotificationManagerCompat.from(context)
-        articles.take(5).forEach { article ->
+        val (singles, overflow) = AlertPolicy.singlesAndOverflow(articles)
+        notifyDigest(context, overflow)
+        singles.forEach { article ->
             // Deep-links into the in-app reader (not an external browser tab) so opening
             // it also marks the article read and clears this notification via MainViewModel.
             val intent = Intent(context, MainActivity::class.java).apply {

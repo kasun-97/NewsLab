@@ -24,8 +24,11 @@ you open and the images they reference.
 
 - **Keyword alerts.** A rule fires when *all* of its words appear in an article's title
   or summary, in any order; wrap words in `"quotes"` to require an exact phrase.
+  Prefix a word or phrase with `-` to exclude it (`IMF -"world cup"`): the rule then
+  skips any article containing it, and a rule made only of exclusions never matches.
   Matching is case-insensitive and substring-based. Matches are pinned under a
-  **KEYWORD ALERTS** header for 24 hours and can raise Android notifications.
+  **KEYWORD ALERTS** header for 24 hours and can raise Android notifications; switch a
+  rule's **Notify** off to keep pinning its matches without notifying (on by default).
 - **Story clustering.** Near-duplicate headlines across sources (SimHash for syndicated
   copy, IDF-weighted cosine for independent coverage, within a 48-hour window) are shown
   as one card you can swipe between. Done on-device with no dependencies; toggleable.
@@ -36,6 +39,8 @@ you open and the images they reference.
   category re-classifies stored articles immediately.
 - Per-source colours, a sources drawer (swipe from the left edge), search, unread
   counter, mark-all-read, hide-read-articles option.
+- Search covers titles and summaries, plus the full text of every article whose body has
+  been extracted (opened, or pre-fetched; see below), through an on-device full-text index.
 
 **Reader**
 
@@ -49,7 +54,11 @@ you open and the images they reference.
 
 **Tabs**: Inbox, Saved (kept forever, never pruned), Alerts (every keyword match) and
 an optional Links tab for reference pages that aren't feeds, filed into foldable,
-reorderable lists.
+reorderable lists. Saved can export every saved article as Markdown (with the cached
+body where there is one) or CSV, from the export action in its header.
+
+**Sharing into the app**: share a link to NewsLab from any app to follow its site as a
+source (the feed is discovered for you) or save the page to Links.
 
 **Sources**
 
@@ -58,6 +67,12 @@ reorderable lists.
 - Group sources into folders. Import and export the whole list as OPML 2.0.
 - A source that fails to refresh shows why under its row (HTTP status, timed out, host not
   found, not a feed) until a fetch succeeds again.
+- Sources that have been failing for more than a day are listed in a **PROBLEMS**
+  section at the top, with when each last worked. **Find feed again** runs
+  discovery on the site's home page and offers to replace the feed's URL with what it
+  finds.
+- Mute a source with the bell button on its row: it is still fetched and shown, but its
+  keyword matches never notify.
 - A first-run picker offers a curated list of feeds. No feeds are hard-wired in.
 
 **Background and data**
@@ -65,11 +80,20 @@ reorderable lists.
 - WorkManager refreshes every 15 minutes, 30 minutes, 1, 2 or 4 hours on any network and
   posts a high-priority notification for new keyword matches. Fetches are conditional
   (`If-None-Match` / `If-Modified-Since`), so an unchanged feed costs a 304 and no download.
+- Settings > Notifications: **Digest notification** (off by default) posts one summary
+  listing the matches when a check finds several, instead of one notification each.
+  **Quiet hours** (off by default; 22:00 to 07:00 when first switched on, both editable)
+  hold alerts during the window and post them on the first check after it; matches still
+  appear in the app as usual, and an article read in the meantime is not notified.
+- Settings > Reading: **Pre-fetch alert articles on Wi-Fi** (on by default). After a
+  background check on an unmetered network, the full text of up to 20 new keyword
+  matches is saved, so they open offline and turn up in search.
 - Unsaved articles are pruned after 14 days, keyword-alert matches after 90 days. Saved
   articles are never pruned.
 - Backup to a single SQLite file, or a zip that also carries the cached thumbnails;
   restore either. A full reset returns the app to its fresh-install state.
-- Statistics screen: counts, per-source breakdown, refresh history, on-disk footprint.
+- Statistics screen: counts, per-source breakdown, refresh history, on-disk footprint,
+  and a chart of keyword matches per day over the last 30 days with the top three rules.
 
 **Appearance**: light, dark or follow-system; two design languages (Warm Ledger, a
 ruled-paper look, and Classic, the original white-and-grey); interface font and size.

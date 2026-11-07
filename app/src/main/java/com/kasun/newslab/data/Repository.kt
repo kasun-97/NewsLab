@@ -245,10 +245,10 @@ class Repository(private val context: Context) {
 
             // Driven by the alertNotified flag rather than this pass's inserts, so an alert
             // left pending (by a pass that died before this point, or held through quiet
-            // hours) is still posted. A pass that doesn't notify (an in-app refresh, or
-            // notifications switched off) still marks what it found, as before: those
-            // matches were never going to alert, and must not surface later as a burst of
-            // stale notifications.
+            // hours) is still posted. A pass that doesn't notify still marks what it found
+            // itself (an in-app refresh: the user is looking at those), or everything when
+            // notifications are switched off, so they never surface later as a burst of
+            // stale notifications. AlertPolicy.idsToMark has the details.
             val pending = dao.unnotifiedAlerts()
             if (pending.isNotEmpty()) {
                 val prefs = Prefs.get(context)
@@ -276,7 +276,13 @@ class Repository(private val context: Context) {
                 }
                 // Suppressed alerts are marked along with posted ones, so a muted
                 // source's matches don't sit pending forever.
-                if (!held) pending.map { it.id }.chunked(500).forEach { dao.markAlertsNotified(it) }
+                AlertPolicy.idsToMark(
+                    pending,
+                    newAlertIds,
+                    notify = notify,
+                    notificationsEnabled = prefs.notificationsEnabled.first(),
+                    held = held,
+                ).chunked(500).forEach { dao.markAlertsNotified(it) }
             }
             // Stamped for every completed pass, not just ones that found new
             // articles — this is what Settings' "last refreshed" reflects, so a

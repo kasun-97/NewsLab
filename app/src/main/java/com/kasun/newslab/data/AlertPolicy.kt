@@ -10,6 +10,9 @@ object AlertPolicy {
     /** How many article titles a digest lists before folding the rest into "+N more". */
     const val DIGEST_LINES = 5
 
+    /** How many matches get a notification of their own before the rest share one summary. */
+    const val MAX_SINGLE_NOTIFICATIONS = 5
+
     /**
      * Whether [nowMinutes] (minutes after local midnight) falls inside the quiet window
      * [startMinutes, endMinutes). A start after the end is an overnight window, e.g.
@@ -34,15 +37,53 @@ object AlertPolicy {
     data class Plan(
         /** To be posted now; marked notified once they have been. */
         val post: List<Article>,
-        /** Will never notify under the current rules and mutes; marked notified straight away. */
+        /**
+         * Will never notify under the current rules and mutes, or was read while it sat
+         * pending; marked notified straight away.
+         */
         val suppressed: List<Article>,
     )
 
     fun plan(pending: List<Article>, rules: List<KeywordRule>, feeds: List<Feed>): Plan {
         val notifying = rules.filter { it.enabled && it.notify }.mapTo(HashSet()) { it.id }
         val muted = feeds.filter { it.muted }.mapTo(HashSet()) { it.id }
-        val (post, suppressed) = pending.partition { shouldNotify(it, notifying, muted) }
+        // A held alert can outlive the pass that found it (quiet hours, a pass that
+        // died), and an article read in the meantime has nothing left to tell anyone.
+        val (post, suppressed) = pending.partition { !it.isRead && shouldNotify(it, notifying, muted) }
         return Plan(post, suppressed)
+    }
+
+    /**
+     * Which pending alerts a finished pass marks notified. A held pass marks nothing. A
+     * notifying pass, or any pass with the master switch off, marks the whole batch: it
+     * was posted, deliberately suppressed, or is never meant to alert. An in-app refresh
+     * with notifications on marks only what it inserted itself, which the user is
+     * looking at; older rows (held through quiet hours, or left by a pass that died)
+     * stay pending for the next background pass to post.
+     */
+    fun idsToMark(
+        pending: List<Article>,
+        insertedIds: Collection<String>,
+        notify: Boolean,
+        notificationsEnabled: Boolean,
+        held: Boolean,
+    ): List<String> = when {
+        held -> emptyList()
+        notify || !notificationsEnabled -> pending.map { it.id }
+        else -> {
+            val inserted = insertedIds.toHashSet()
+            pending.map { it.id }.filter { it in inserted }
+        }
+    }
+
+    /**
+     * Splits matches into the newest few that get a notification each and the rest,
+     * which share one summary: past the cap, older matches must not crowd out newer
+     * ones, and none may be marked notified without being posted somewhere.
+     */
+    fun singlesAndOverflow(articles: List<Article>): Pair<List<Article>, List<Article>> {
+        val newestFirst = articles.sortedByDescending { it.publishedAt }
+        return newestFirst.take(MAX_SINGLE_NOTIFICATIONS) to newestFirst.drop(MAX_SINGLE_NOTIFICATIONS)
     }
 
     /**

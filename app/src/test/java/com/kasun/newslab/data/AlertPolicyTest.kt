@@ -9,7 +9,14 @@ class AlertPolicyTest {
 
     private fun minutes(hour: Int, minute: Int = 0) = hour * 60 + minute
 
-    private fun article(id: String, feedId: Long = 1, rules: String = ",1,", labels: String = "IMF") = Article(
+    private fun article(
+        id: String,
+        feedId: Long = 1,
+        rules: String = ",1,",
+        labels: String = "IMF",
+        publishedAt: Long = 0,
+        isRead: Boolean = false,
+    ) = Article(
         id = id,
         feedId = feedId,
         feedName = "Feed $feedId",
@@ -17,12 +24,13 @@ class AlertPolicyTest {
         title = "Title $id",
         summary = "",
         link = "https://example.com/$id",
-        publishedAt = 0,
+        publishedAt = publishedAt,
         fetchedAt = 0,
         rssCategories = "",
         categoryIds = "",
         matchedRules = rules,
         matchedLabels = labels,
+        isRead = isRead,
     )
 
     private fun rule(id: Long, notify: Boolean = true, enabled: Boolean = true) =
@@ -92,6 +100,55 @@ class AlertPolicyTest {
         )
         assertEquals(listOf("loud", "oneLoudOfTwo"), plan.post.map { it.id })
         assertEquals(listOf("silentRule", "pausedRule", "deletedRule", "mutedFeed"), plan.suppressed.map { it.id })
+    }
+
+    @Test
+    fun alertReadWhilePendingIsSuppressed() {
+        val plan = AlertPolicy.plan(
+            listOf(article("unread"), article("read", isRead = true)),
+            rules = listOf(rule(1)),
+            feeds = listOf(feed(1)),
+        )
+        assertEquals(listOf("unread"), plan.post.map { it.id })
+        assertEquals(listOf("read"), plan.suppressed.map { it.id })
+    }
+
+    @Test
+    fun inAppRefreshMarksOnlyItsOwnInsertsAndKeepsHolds() {
+        val pending = listOf(article("heldOvernight"), article("justFetched"))
+        val inserted = listOf("justFetched")
+        // In-app refresh with notifications on: the overnight hold stays pending.
+        assertEquals(
+            listOf("justFetched"),
+            AlertPolicy.idsToMark(pending, inserted, notify = false, notificationsEnabled = true, held = false),
+        )
+        // Background pass outside quiet hours: everything was posted or suppressed.
+        assertEquals(
+            listOf("heldOvernight", "justFetched"),
+            AlertPolicy.idsToMark(pending, inserted, notify = true, notificationsEnabled = true, held = false),
+        )
+        // Master switch off: nothing is ever meant to alert, so nothing waits.
+        assertEquals(
+            listOf("heldOvernight", "justFetched"),
+            AlertPolicy.idsToMark(pending, inserted, notify = false, notificationsEnabled = false, held = false),
+        )
+        // Held through quiet hours: nothing is marked.
+        assertEquals(
+            emptyList<String>(),
+            AlertPolicy.idsToMark(pending, inserted, notify = true, notificationsEnabled = true, held = true),
+        )
+    }
+
+    @Test
+    fun newestMatchesGetSingleNotificationsAndTheRestOverflow() {
+        val articles = (1..8).map { article("a$it", publishedAt = it.toLong()) }
+        val (singles, overflow) = AlertPolicy.singlesAndOverflow(articles)
+        assertEquals(listOf("a8", "a7", "a6", "a5", "a4"), singles.map { it.id })
+        assertEquals(listOf("a3", "a2", "a1"), overflow.map { it.id })
+
+        val (few, none) = AlertPolicy.singlesAndOverflow(articles.take(3))
+        assertEquals(3, few.size)
+        assertTrue(none.isEmpty())
     }
 
     @Test
