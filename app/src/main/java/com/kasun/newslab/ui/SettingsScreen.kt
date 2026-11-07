@@ -372,6 +372,23 @@ fun SettingsScreen(
             }
             NdSwitch(checked = hideRead, onCheckedChange = { vm.setHideRead(it) })
         }
+        val prefetchAlertBodies by vm.prefetchAlertBodies.collectAsState()
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text("Pre-fetch alert articles on Wi-Fi", fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = nd.ink)
+                Text(
+                    "After a background check on an unmetered network, save the full text of new " +
+                        "keyword matches so they open offline and turn up in search.",
+                    fontSize = 12.sp,
+                    color = nd.faint,
+                    lineHeight = 17.sp,
+                )
+            }
+            NdSwitch(checked = prefetchAlertBodies, onCheckedChange = { vm.setPrefetchAlertBodies(it) })
+        }
 
         SectionLabel("IMAGES", nd.muted)
         Row(

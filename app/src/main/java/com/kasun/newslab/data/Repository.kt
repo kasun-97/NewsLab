@@ -478,6 +478,49 @@ class Repository(private val context: Context) {
         result
     }
 
+    /**
+     * Extracts and caches the bodies of the given articles that have none yet, so a
+     * new alert opens offline and is covered by full-text search. Called by the
+     * background worker on an unmetered network; returns how many bodies were cached.
+     *
+     * Strictly best effort: a page that fails, is blocked by robots.txt (which
+     * [loadArticleText] honours) or has no readable body is skipped, and nothing
+     * here may fail the refresh that triggered it. One page at a time, newest first,
+     * capped per run: this is a courtesy fetch nobody is waiting on, so it shouldn't
+     * hammer a site that just published a burst of matches, or outlast the worker.
+     */
+    suspend fun prefetchBodies(ids: List<String>): Int = withContext(Dispatchers.IO) {
+        if (ids.isEmpty()) return@withContext 0
+        val candidates = try {
+            // Chunked for SQLite's bound-variable limit, as in refresh.
+            ids.chunked(500).flatMap { dao.articlesWithoutContent(it) }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            return@withContext 0
+        }
+        var cached = 0
+        for (article in Prefetch.pick(candidates)) {
+            try {
+                if (loadArticleText(article) is ArticleExtractor.Result.Success) cached++
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                // A database hiccup on one row shouldn't stop the rest.
+            }
+        }
+        cached
+    }
+
+    /** Which candidates [prefetchBodies] fetches; kept apart so it can be unit-tested. */
+    internal object Prefetch {
+        const val MAX_PER_RUN = 20
+
+        /** The newest first, since the alert list leads with them and they're likeliest to be opened. */
+        fun pick(candidates: List<Article>, limit: Int = MAX_PER_RUN): List<Article> =
+            candidates.sortedByDescending { it.publishedAt }.take(limit)
+    }
+
     private fun extractOgImage(html: String, baseUrl: HttpUrl): String? {
         for (match in metaTag.findAll(html)) {
             val tag = match.value

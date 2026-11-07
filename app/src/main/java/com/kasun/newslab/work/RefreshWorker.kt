@@ -1,6 +1,7 @@
 package com.kasun.newslab.work
 
 import android.content.Context
+import android.net.ConnectivityManager
 import androidx.work.Constraints
 import androidx.work.CoroutineWorker
 import androidx.work.ExistingPeriodicWorkPolicy
@@ -21,7 +22,14 @@ class RefreshWorker(context: Context, params: WorkerParameters) :
     override suspend fun doWork(): Result = try {
         val prefs = Prefs.get(applicationContext)
         val notify = prefs.notificationsEnabled.first()
-        val result = Repository(applicationContext).refresh(notify)
+        val repository = Repository(applicationContext)
+        val result = repository.refresh(notify)
+
+        // Only here, not on a manual refresh: someone pulling to refresh is about to
+        // read, and shouldn't wait on (or pay mobile data for) pages they may not open.
+        if (shouldPrefetch(prefs.prefetchAlertBodies.first(), isNetworkMetered(), result.newAlertIds)) {
+            repository.prefetchBodies(result.newAlertIds)
+        }
 
         // Individual dead feeds aren't retryable-with-backoff conditions, but every
         // feed failing at once usually means the network dropped mid-run.
@@ -38,8 +46,21 @@ class RefreshWorker(context: Context, params: WorkerParameters) :
         Result.retry()
     }
 
+    /**
+     * Asked of the platform rather than inferred from the transport, so a metered
+     * Wi-Fi hotspot counts as metered. With no active network the platform answers
+     * true, which is the safe way round.
+     */
+    private fun isNetworkMetered(): Boolean =
+        applicationContext.getSystemService(ConnectivityManager::class.java)
+            ?.isActiveNetworkMetered ?: true
+
     companion object {
         private const val UNIQUE_NAME = "newslab-refresh"
+
+        /** Whether a finished background refresh should go on to cache its new alerts' bodies. */
+        internal fun shouldPrefetch(enabled: Boolean, metered: Boolean, newAlertIds: List<String>): Boolean =
+            enabled && !metered && newAlertIds.isNotEmpty()
 
         /** 15 minutes is the minimum periodic interval WorkManager allows. */
         const val MIN_INTERVAL_MINUTES = 15L
