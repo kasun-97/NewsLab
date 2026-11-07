@@ -9,6 +9,13 @@ collapses into one card. Everything stays on the phone: there is no account, no
 server and no analytics. The app talks only to the feeds you add, the article pages
 you open and the images they reference.
 
+<p align="center">
+  <img src="docs/screenshots/inbox-light.jpg" width="200" alt="Inbox, light theme: keyword alerts pinned above the day timeline">
+  <img src="docs/screenshots/inbox-dark.jpg" width="200" alt="Inbox, dark theme">
+  <img src="docs/screenshots/alerts.jpg" width="200" alt="Alerts tab listing every keyword match">
+  <img src="docs/screenshots/sources.jpg" width="200" alt="Sources screen with groups and OPML import/export">
+</p>
+
 ## Features
 
 **Inbox**
@@ -94,43 +101,6 @@ attached:
 
 ```bash
 ./gradlew :app:connectedDebugAndroidTest
-```
-
-## Project layout
-
-```
-app/src/main/java/com/kasun/newslab/
-├── MainActivity.kt           # entry point, edge-to-edge, notification permission
-├── MainViewModel.kt          # state flows + user actions
-├── NewsLabApp.kt             # notification channel, work scheduling
-├── data/
-│   ├── Entities.kt           # Feed, Category, KeywordRule, Article, FeedGroup, QuickLink… (Room)
-│   ├── NewsDao.kt / AppDb.kt # persistence, migrations, seeded defaults
-│   ├── Repository.kt         # shared OkHttp client, fetch → clean → classify → insert
-│   ├── RssParser.kt          # defensive RSS 2.0 / Atom pull-parser
-│   ├── FeedDiscovery.kt      # site URL → feed URL(s)
-│   ├── Classifier.kt         # keyword AND/phrase matcher + category tagging
-│   ├── StoryClusterer.kt     # cross-source near-duplicate grouping
-│   ├── ArticleExtractor.kt   # readability-style full-text extraction
-│   ├── Robots.kt             # robots.txt check before extraction
-│   ├── ShareCard.kt          # 1080×1080 share image, drawn on a Canvas
-│   ├── BackupManager.kt      # export/import/reset of the local library
-│   ├── OpmlManager.kt        # OPML 2.0 import/export
-│   ├── PopularFeeds.kt       # the first-run feed picker's list
-│   ├── Prefs.kt              # DataStore-backed settings
-│   └── TextUtil.kt           # HTML stripping, date parsing, time-ago
-├── work/
-│   ├── RefreshWorker.kt      # periodic background fetch (WorkManager)
-│   └── Notifier.kt           # keyword-match notifications
-└── ui/
-    ├── App.kt                # scaffold, bottom navigation, screen routing
-    ├── InboxScreen.kt        # pinned alerts + day-grouped, clustered timeline
-    ├── ArticleDetailScreen.kt# in-app reader
-    ├── SavedScreen.kt / AlertsScreen.kt / LinksScreen.kt
-    ├── SettingsScreen.kt     # plus Sources, Categories, KeywordRules, Statistics screens
-    ├── Onboarding.kt         # first-run intro and feed picker
-    ├── Components.kt / Dialogs.kt / ArticleActionsSheet.kt
-    └── theme/                # Warm Ledger and Classic palettes, bundled fonts
 ```
 
 ## Notes and known assumptions
