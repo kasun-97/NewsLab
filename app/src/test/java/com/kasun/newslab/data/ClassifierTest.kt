@@ -24,10 +24,12 @@ class RuleMatcherTest {
     }
 
     @Test
-    fun tokenizeKeepsQuoteCharOnUnbalancedPhrase() {
-        // Current behaviour: an unclosed quote is not a phrase, so the quote stays
-        // glued to the first word and that token only matches text containing a quote.
-        assertEquals(listOf("\"interest", "rates"), RuleMatcher.tokenize("\"interest rates"))
+    fun tokenizeDropsStrayQuoteOnUnbalancedPhrase() {
+        // An unclosed quote is not a phrase: the words are plain tokens and the stray
+        // quote mark is dropped instead of being glued to the first word.
+        assertEquals(listOf("interest", "rates"), RuleMatcher.tokenize("\"interest rates"))
+        assertEquals(listOf("rates"), RuleMatcher.tokenize("\" rates"))
+        assertTrue(RuleMatcher.matches("\"interest rates", "interest rates held"))
     }
 
     @Test

@@ -16,7 +16,9 @@ object RuleMatcher {
         val tokens = mutableListOf<String>()
         for (match in tokenRegex.findAll(query.trim().lowercase())) {
             val phrase = match.groupValues[1].trim()
-            val word = match.groupValues[2].trim()
+            // An unclosed quote isn't a phrase; drop the stray quote mark rather than
+            // keep a token that can only match text containing one.
+            val word = match.groupValues[2].trim().trim('"')
             when {
                 phrase.isNotEmpty() -> tokens += phrase
                 word.isNotEmpty() -> tokens += word
