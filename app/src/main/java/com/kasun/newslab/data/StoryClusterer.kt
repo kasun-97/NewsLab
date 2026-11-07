@@ -18,9 +18,11 @@ data class StoryCluster(val members: List<Article>) {
 /**
  * Groups near-duplicate stories across sources, on-device and dependency-free.
  * Two articles merge when their headlines are near-identical (SimHash, catching
- * syndicated wire copy) or share enough rare, discriminative words (IDF-weighted
- * cosine with a shared-rare-token guard, catching independently written coverage
- * of the same event) — and they fall within a time window. Clustering is a pure
+ * syndicated wire copy), share nearly the same words (token-set Jaccard, catching a
+ * short syndicated headline with a word added or dropped, which SimHash misses), or
+ * share enough rare, discriminative words (IDF-weighted cosine with a shared-rare-token
+ * guard, catching independently written coverage of the same event) — and they fall
+ * within a time window. Clustering is a pure
  * function of the input list, so it can be derived on read like the day grouping.
  */
 object StoryClusterer {
@@ -28,6 +30,10 @@ object StoryClusterer {
     private const val WINDOW_MS = 48L * 3_600_000L
     private const val SIMHASH_MAX_HAMMING = 4
     private const val COSINE_MIN = 0.30
+
+    /** Token-set overlap that counts as the same headline reworded; needs this many shared tokens too. */
+    private const val JACCARD_MIN = 0.75
+    private const val JACCARD_MIN_SHARED = 4
 
     /** A shared token counts as "strong" (identifying) when it's long or numeric. */
     private const val STRONG_TOKEN_LEN = 5
@@ -90,13 +96,20 @@ object StoryClusterer {
         val small = if (docs[i].size <= docs[j].size) docs[i] else docs[j]
         val large = if (small === docs[i]) docs[j] else docs[i]
         var dot = 0.0
+        var shared = 0
         var strongShared = 0
         for ((token, tfSmall) in small) {
             val tfLarge = large[token] ?: continue
             val w = idf[token] ?: 0.0
             dot += (w * tfSmall) * (w * tfLarge)
+            shared++
             if (token.length >= STRONG_TOKEN_LEN || token.any(Char::isDigit)) strongShared++
         }
+        // Nearly the same set of words: a short syndicated headline with one word
+        // added or dropped moves the IDF-weighted SimHash past its threshold, and
+        // without long or numeric tokens the cosine guard below can't fire either.
+        val union = small.size + large.size - shared
+        if (shared >= JACCARD_MIN_SHARED && shared.toDouble() / union >= JACCARD_MIN) return true
         val cosine = dot / (norms[i] * norms[j])
         return cosine >= COSINE_MIN && strongShared >= 2
     }

@@ -73,10 +73,10 @@ class StoryClustererTest {
     }
 
     @Test
-    fun shortNearIdenticalHeadlinesWithOneExtraWordStayApart() {
-        // Current behaviour, documented: one extra word moves the IDF-weighted SimHash
-        // past the 4-bit threshold, and with no long/numeric shared tokens the cosine
-        // guard can't fire either, so short syndicated variants are not merged.
+    fun shortNearIdenticalHeadlinesWithOneExtraWordMergeViaJaccard() {
+        // One extra word moves the IDF-weighted SimHash past the 4-bit threshold, and
+        // with no long/numeric shared tokens the cosine guard can't fire; the token-set
+        // overlap (9 of 10 words) catches it instead.
         val clusters = StoryClusterer.cluster(
             listOf(
                 article("a", "Fed cuts key rate, oil and gold jump, yen dips", 1),
@@ -84,7 +84,20 @@ class StoryClustererTest {
                 article("c", "Colombo stocks close higher on banking gains", 3),
             ),
         )
-        assertEquals(listOf(listOf("a"), listOf("b"), listOf("c")), ids(clusters))
+        assertEquals(listOf(listOf("a", "b"), listOf("c")), ids(clusters))
+    }
+
+    @Test
+    fun shortHeadlinesSharingOnlyMostWordsStayApart() {
+        // Seven of eleven distinct words shared is under the overlap threshold, and
+        // with no long or numeric tokens the cosine path can't fire: different stories.
+        val clusters = StoryClusterer.cluster(
+            listOf(
+                article("a", "Fed holds key rate, oil and gold dip, yen up", 1),
+                article("b", "Fed cuts key rate, oil and gold jump, yen dips", 2, feedId = 2),
+            ),
+        )
+        assertEquals(listOf(listOf("a"), listOf("b")), ids(clusters))
     }
 
     @Test
