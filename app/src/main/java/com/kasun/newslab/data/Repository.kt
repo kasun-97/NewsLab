@@ -16,8 +16,14 @@ import okhttp3.HttpUrl
 import com.kasun.newslab.BuildConfig
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import java.io.IOException
 import java.io.InputStream
+import java.io.InterruptedIOException
+import java.net.ConnectException
+import java.net.SocketTimeoutException
+import java.net.UnknownHostException
 import java.util.concurrent.TimeUnit
+import javax.net.ssl.SSLException
 import kotlin.math.min
 
 /**
@@ -94,11 +100,14 @@ class Repository(private val context: Context) {
 
     private val client get() = Http.client
 
+    /** One source that couldn't be refreshed, with the short reason also stored on its row. */
+    data class FeedFailure(val name: String, val reason: String)
+
     /** Outcome of a full refresh pass, for user-visible feedback and worker retry decisions. */
     data class RefreshResult(
         val added: Int,
         val attempted: Int,
-        val failedFeeds: List<String>,
+        val failedFeeds: List<FeedFailure>,
     )
 
     /**
@@ -119,7 +128,7 @@ class Repository(private val context: Context) {
             val cutoff = now - KEEP_DAYS * 86_400_000L
             val alertCutoff = now - ALERT_KEEP_DAYS * 86_400_000L
 
-            val fetches: List<Pair<Feed, FetchOutcome?>> = coroutineScope {
+            val fetches: List<Pair<Feed, Fetch>> = coroutineScope {
                 feeds.map { feed ->
                     async {
                         fetchSemaphore.withPermit { feed to fetchFeed(feed, categories, rules, now, cutoff, alertCutoff) }
@@ -129,13 +138,20 @@ class Repository(private val context: Context) {
 
             var inserted = 0
             val newAlerts = mutableListOf<Article>()
-            val failedFeeds = mutableListOf<String>()
+            val failedFeeds = mutableListOf<FeedFailure>()
 
-            for ((feed, outcome) in fetches) {
-                if (outcome == null) {
-                    failedFeeds += feed.name
-                    continue
+            for ((feed, fetch) in fetches) {
+                val outcome = when (fetch) {
+                    is Fetch.Failed -> {
+                        failedFeeds += FeedFailure(feed.name, fetch.reason)
+                        // Kept on the row so the Sources screen can say why, not just that.
+                        dao.recordFeedError(feed.id, fetch.reason, now)
+                        continue
+                    }
+                    is Fetch.Ok -> fetch.outcome
                 }
+                // Reaching the server and parsing its answer clears any earlier error.
+                dao.recordFeedSuccess(feed.id, now)
                 // The server confirmed nothing changed since the validators we sent:
                 // nothing to insert, and the stored validators are still the right ones.
                 if (outcome.notModified) continue
@@ -208,7 +224,10 @@ class Repository(private val context: Context) {
                 } catch (e: CancellationException) {
                     throw e
                 } catch (_: Exception) {
-                    failedFeeds += feed.name
+                    val reason = "Database error"
+                    failedFeeds += FeedFailure(feed.name, reason)
+                    // Best effort: if the database is what's failing, this write may fail too.
+                    runCatching { dao.recordFeedError(feed.id, reason, now) }
                 }
             }
 
@@ -245,9 +264,15 @@ class Repository(private val context: Context) {
         val notModified: Boolean = false,
     )
 
+    /** A feed fetch either produced an outcome or failed for a reason short enough to show on its row. */
+    private sealed interface Fetch {
+        data class Ok(val outcome: FetchOutcome) : Fetch
+        data class Failed(val reason: String) : Fetch
+    }
+
     /**
      * Fetches and parses one feed into ready-to-insert articles.
-     * Returns null on any fetch/parse failure so the caller can report the feed,
+     * Returns [Fetch.Failed] with a short reason on any fetch/parse failure,
      * and pre-drops items already older than their prune cutoff (they would be
      * inserted and immediately re-pruned on every refresh otherwise). Rule matches
      * get the longer [alertCutoff], mirroring the two prune windows exactly, so a
@@ -260,7 +285,7 @@ class Repository(private val context: Context) {
         now: Long,
         cutoff: Long,
         alertCutoff: Long,
-    ): FetchOutcome? = try {
+    ): Fetch = try {
         val request = Request.Builder()
             .url(feed.url)
             .header("User-Agent", Http.USER_AGENT)
@@ -275,12 +300,18 @@ class Repository(private val context: Context) {
             .build()
         client.newCall(request).execute().use { response ->
             if (response.code == HTTP_NOT_MODIFIED) {
-                return@use FetchOutcome(emptyList(), feed.isAtom, feed.etag, feed.lastModified, notModified = true)
+                return@use Fetch.Ok(FetchOutcome(emptyList(), feed.isAtom, feed.etag, feed.lastModified, notModified = true))
             }
-            val body = response.body
-            if (!response.isSuccessful || body == null) return@use null
+            if (!response.isSuccessful) return@use Fetch.Failed(httpReason(response.code, response.message))
+            val body = response.body ?: return@use Fetch.Failed("Empty response")
 
             val parsed = RssParser.parse(LimitedInputStream(body.byteStream(), MAX_FEED_BYTES))
+            // A feed address that now serves a web page (moved site, login wall) is the
+            // commonest silent failure: it parses to zero items and looked like a quiet
+            // feed. Checked after parsing, since some servers mislabel real feeds as HTML.
+            if (parsed.items.isEmpty() && body.contentType()?.subtype.equals("html", ignoreCase = true)) {
+                return@use Fetch.Failed("Not a feed (the address serves a web page)")
+            }
             val articles = parsed.items.map { item ->
                 // Generous cap, not a display truncation — just a guard against
                 // pathological feeds; typical articles land well under this.
@@ -312,18 +343,37 @@ class Repository(private val context: Context) {
             }
                 .filter { it.title.isNotBlank() }
                 .filter { it.publishedAt >= cutoff || (it.matchedRules.isNotEmpty() && it.publishedAt >= alertCutoff) }
-            FetchOutcome(
-                articles,
-                parsed.isAtom,
-                etag = response.header("ETag").orEmpty(),
-                lastModified = response.header("Last-Modified").orEmpty(),
+            Fetch.Ok(
+                FetchOutcome(
+                    articles,
+                    parsed.isAtom,
+                    etag = response.header("ETag").orEmpty(),
+                    lastModified = response.header("Last-Modified").orEmpty(),
+                ),
             )
         }
     } catch (e: CancellationException) {
         throw e
-    } catch (_: Exception) {
+    } catch (e: Exception) {
         // One bad feed shouldn't break the whole refresh.
-        null
+        Fetch.Failed(describe(e))
+    }
+
+    private fun httpReason(code: Int, message: String): String =
+        if (message.isBlank()) "HTTP $code" else "HTTP $code $message"
+
+    /** Plain words for the common failures; the exception class name for anything else. */
+    private fun describe(e: Exception): String {
+        val reason = when (e) {
+            is UnknownHostException -> "Host not found"
+            is SocketTimeoutException -> "Timed out"
+            is InterruptedIOException -> "Timed out" // OkHttp's whole-call timeout
+            is SSLException -> "Secure connection failed"
+            is ConnectException -> "Connection refused"
+            is IOException -> e.message?.takeIf { it.isNotBlank() } ?: "Network error"
+            else -> e.javaClass.simpleName
+        }
+        return reason.take(MAX_REASON_CHARS)
     }
 
     /**
@@ -433,6 +483,7 @@ class Repository(private val context: Context) {
         const val ALERT_KEEP_DAYS = 90
         const val HTML_HEAD_PEEK_BYTES = 65_536L
         const val HTTP_NOT_MODIFIED = 304
+        const val MAX_REASON_CHARS = 120
         const val MAX_FEED_BYTES = 5 * 1024 * 1024
         val metaTag = Regex("""<meta\s+[^>]*>""", RegexOption.IGNORE_CASE)
         val ogImageProperty = Regex("""property=["']og:image["']""", RegexOption.IGNORE_CASE)

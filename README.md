@@ -56,6 +56,8 @@ reorderable lists.
 - Paste a site URL or a feed URL; auto-discovery finds the feed (direct check, then
   `<link rel="alternate">`, then common paths, validating each candidate by parsing it).
 - Group sources into folders. Import and export the whole list as OPML 2.0.
+- A source that fails to refresh shows why under its row (HTTP status, timed out, host not
+  found, not a feed) until a fetch succeeds again.
 - A first-run picker offers a curated list of feeds. No feeds are hard-wired in.
 
 **Background and data**

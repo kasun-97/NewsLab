@@ -242,6 +242,14 @@ interface NewsDao {
     @Query("UPDATE feeds SET etag = :etag, lastModified = :lastModified WHERE id = :id")
     suspend fun updateFeedValidators(id: Long, etag: String, lastModified: String)
 
+    /** A successful fetch (a 304 counts): stamps the time and clears any earlier error. */
+    @Query("UPDATE feeds SET lastFetchedAt = :at, lastError = '', lastErrorAt = 0 WHERE id = :id")
+    suspend fun recordFeedSuccess(id: Long, at: Long)
+
+    /** Keeps the reason a fetch failed on the row, for the Sources screen. */
+    @Query("UPDATE feeds SET lastError = :reason, lastErrorAt = :at WHERE id = :id")
+    suspend fun recordFeedError(id: Long, reason: String, at: Long)
+
     @Delete
     suspend fun deleteFeed(feed: Feed)
 

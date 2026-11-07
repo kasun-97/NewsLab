@@ -159,7 +159,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             failed.isEmpty() -> if (added > 0) addedText else "You're up to date"
             else -> {
                 val failText =
-                    if (failed.size == 1) "couldn't reach ${failed.first()}"
+                    if (failed.size == 1) "couldn't reach ${failed.first().name}: ${failed.first().reason}"
                     else "couldn't reach ${failed.size} sources"
                 if (added > 0) "$addedText · $failText"
                 else failText.replaceFirstChar { it.uppercase() }

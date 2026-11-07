@@ -47,6 +47,7 @@ import com.kasun.newslab.MainViewModel
 import com.kasun.newslab.data.Feed
 import com.kasun.newslab.data.FeedGroup
 import com.kasun.newslab.data.OpmlManager
+import com.kasun.newslab.data.TextUtil
 import com.kasun.newslab.ui.theme.nd
 import com.kasun.newslab.ui.theme.sourceHue
 
@@ -284,6 +285,16 @@ private fun FeedRow(feed: Feed, onEdit: () -> Unit, onToggle: () -> Unit, onDele
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
+            // Why the last refresh of this source failed, until one succeeds again.
+            if (feed.lastError.isNotBlank()) {
+                Text(
+                    "${feed.lastError} · ${TextUtil.timeAgo(feed.lastErrorAt)}",
+                    fontSize = 12.sp,
+                    color = nd.negative,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
         }
         NdSwitch(checked = feed.enabled, onCheckedChange = { onToggle() })
         Spacer(Modifier.width(4.dp))

@@ -23,6 +23,11 @@ data class Feed(
      */
     val etag: String = "",
     val lastModified: String = "",
+    /** When the feed was last fetched successfully (a 304 counts); 0 if never. */
+    val lastFetchedAt: Long = 0,
+    /** Why the last refresh of this feed failed, in a few words; blank once a fetch succeeds again. */
+    val lastError: String = "",
+    val lastErrorAt: Long = 0,
 )
 
 /** A user-defined folder for organizing sources on the Feeds screen (e.g. "Local", "Markets"). */
