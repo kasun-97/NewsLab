@@ -88,6 +88,24 @@ class StoryClustererTest {
     }
 
     @Test
+    fun oppositeMovementsStayApartHoweverAlikeTheWords() {
+        // These share four long tokens, enough for the cosine path, but one says up and
+        // the other down, so they are different stories. A headline that mentions both
+        // movements is not guarded and still clusters with its syndicated copy.
+        val clusters = StoryClusterer.cluster(
+            listOf(
+                article("a", "Sri Lanka rupee gains against dollar", 1),
+                article("b", "Sri Lanka rupee falls against dollar", 2, feedId = 2),
+                article("c", "Central bank cuts policy rates by 50 basis points", 3),
+                article("d", "Central bank hikes policy rates by 50 basis points", 4, feedId = 2),
+                article("e", "Rupee falls as Colombo stocks gain on bank earnings", 5),
+                article("f", "Rupee falls as Colombo stocks gain on bank earnings", 6, feedId = 2),
+            ),
+        )
+        assertEquals(listOf(listOf("a"), listOf("b"), listOf("c"), listOf("d"), listOf("e", "f")), ids(clusters))
+    }
+
+    @Test
     fun shortHeadlinesSharingOnlyMostWordsStayApart() {
         // Seven of eleven distinct words shared is under the overlap threshold, and
         // with no long or numeric tokens the cosine path can't fire: different stories.

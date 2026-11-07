@@ -51,6 +51,7 @@ object StoryClusterer {
 
         val norms = DoubleArray(n)
         val fingerprints = LongArray(n)
+        val directions = IntArray(n) { direction(docs[it]) }
         for (i in 0 until n) {
             var sumSq = 0.0
             for ((token, tf) in docs[i]) {
@@ -66,6 +67,9 @@ object StoryClusterer {
             for (j in i + 1 until n) {
                 // Sorted newest-first, so once j is older than the window from i, so is everything after it.
                 if (articles[i].publishedAt - articles[j].publishedAt > WINDOW_MS) break
+                // Opposite movements are different stories however alike the words:
+                // "rupee gains" and "rupee falls" share every token but one.
+                if (directions[i] * directions[j] < 0) continue
                 if (sameStory(i, j, docs, idf, norms, fingerprints)) uf.union(i, j)
             }
         }
@@ -178,6 +182,32 @@ object StoryClusterer {
     }
 
     private val TOKEN_SPLIT = Regex("[^\\p{L}\\p{Nd}]+")
+
+    /**
+     * +1 when a headline says something went up, -1 when down, 0 when neither or both
+     * ("rupee falls as stocks gain" is about two movements, so it isn't guarded).
+     * Tokens arrive stemmed, so "gains" is "gain" here but "rose" and "fell" are not.
+     */
+    private fun direction(doc: Map<String, Int>): Int {
+        var up = false
+        var down = false
+        for (token in doc.keys) {
+            if (token in UP_WORDS) up = true else if (token in DOWN_WORDS) down = true
+        }
+        return if (up == down) 0 else if (up) 1 else -1
+    }
+
+    private val UP_WORDS = setOf(
+        "gain", "gained", "rise", "rose", "risen", "jump", "jumped", "surge", "surged", "climb",
+        "climbed", "soar", "soared", "rally", "rallied", "advance", "advanced", "strengthen",
+        "strengthened", "increase", "increased", "higher", "up", "hike", "hiked", "raise", "raised",
+    )
+
+    private val DOWN_WORDS = setOf(
+        "fall", "fell", "fallen", "drop", "dropped", "dip", "dipped", "slump", "slumped", "slide",
+        "slid", "plunge", "plunged", "tumble", "tumbled", "sink", "sank", "decline", "declined",
+        "weaken", "weakened", "decrease", "decreased", "lower", "down", "cut", "ease", "eased",
+    )
 
     // Conservative function-word list — deliberately excludes news-signal words like
     // "us", "new", numbers, and proper nouns.
