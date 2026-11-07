@@ -1,6 +1,9 @@
 package com.kasun.newslab.ui
 
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -10,7 +13,14 @@ import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material.icons.outlined.TableChart
+import androidx.compose.material.icons.outlined.Upload
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.Icon
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.MutableState
@@ -24,6 +34,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.kasun.newslab.MainViewModel
 import com.kasun.newslab.data.Article
+import com.kasun.newslab.data.SavedExporter
+import com.kasun.newslab.ui.theme.nd
 
 /** Bookmarked articles (kept forever, exempt from pruning). */
 @Composable
@@ -80,6 +92,14 @@ fun SavedScreen(
     }
     BackHandler(enabled = searchActive) { closeSearch() }
 
+    // One launcher per format: CreateDocument fixes its MIME type when it is built.
+    val markdownLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument(SavedExporter.Format.MARKDOWN.mimeType),
+    ) { uri -> if (uri != null) vm.exportSaved(uri, SavedExporter.Format.MARKDOWN) }
+    val csvLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument(SavedExporter.Format.CSV.mimeType),
+    ) { uri -> if (uri != null) vm.exportSaved(uri, SavedExporter.Format.CSV) }
+
     Column(Modifier.fillMaxSize()) {
         ScreenHeader(
             "Saved",
@@ -87,6 +107,28 @@ fun SavedScreen(
         ) {
             if (saved.isNotEmpty()) {
                 HeaderAction(Icons.Outlined.Search, "Search", onClick = { searchActive = true })
+                var exportMenuOpen by remember { mutableStateOf(false) }
+                Box {
+                    HeaderAction(Icons.Outlined.Upload, "Export", onClick = { exportMenuOpen = true })
+                    DropdownMenu(expanded = exportMenuOpen, onDismissRequest = { exportMenuOpen = false }) {
+                        DropdownMenuItem(
+                            text = { Text("Export as Markdown") },
+                            leadingIcon = { Icon(Icons.Outlined.Description, contentDescription = null, tint = nd.muted) },
+                            onClick = {
+                                exportMenuOpen = false
+                                markdownLauncher.launch(SavedExporter.fileName(SavedExporter.Format.MARKDOWN))
+                            },
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Export as CSV") },
+                            leadingIcon = { Icon(Icons.Outlined.TableChart, contentDescription = null, tint = nd.muted) },
+                            onClick = {
+                                exportMenuOpen = false
+                                csvLauncher.launch(SavedExporter.fileName(SavedExporter.Format.CSV))
+                            },
+                        )
+                    }
+                }
             }
         }
         if (searchActive) {

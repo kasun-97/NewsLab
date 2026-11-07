@@ -27,6 +27,7 @@ import com.kasun.newslab.data.Prefs
 import com.kasun.newslab.data.QuickLink
 import com.kasun.newslab.data.QuickLinkList
 import com.kasun.newslab.data.Repository
+import com.kasun.newslab.data.SavedExporter
 import com.kasun.newslab.data.DesignStyle
 import com.kasun.newslab.data.TextUtil
 import com.kasun.newslab.data.ThemeMode
@@ -393,6 +394,31 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             if (groupsCreated > 0) append(" in $groupsCreated new group").append(if (groupsCreated == 1) "" else "s")
             if (skipped > 0) append(", skipped $skipped already added")
         }
+    }
+
+    // ---- Saved export ----
+
+    /** Writes every saved article to [destination] as Markdown or CSV. */
+    fun exportSaved(destination: Uri, format: SavedExporter.Format) = viewModelScope.launch {
+        // Read from the database, not the `articles` StateFlow: the picker may have
+        // outlived the activity, and a freshly rebuilt ViewModel's list starts empty.
+        val saved = dao.articlesOnce().filter { it.isSaved }.sortedByDescending { it.publishedAt }
+        if (saved.isEmpty()) {
+            _messages.emit("No saved articles to export")
+            return@launch
+        }
+        // Only Markdown carries bodies. Saved lists are short, so a lookup per article is fine.
+        val bodies = if (format == SavedExporter.Format.MARKDOWN) {
+            saved.mapNotNull { article -> dao.articleContent(article.id)?.let { article.id to it.text } }.toMap()
+        } else {
+            emptyMap()
+        }
+        _messages.emit(
+            when (val result = SavedExporter.export(getApplication(), destination, format, saved, bodies)) {
+                is ImportResult.Success -> if (saved.size == 1) "Exported 1 saved article" else "Exported ${saved.size} saved articles"
+                is ImportResult.Failure -> result.message
+            }
+        )
     }
 
     // ---- Quick links ----
