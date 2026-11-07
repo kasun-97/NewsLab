@@ -117,11 +117,12 @@ class Repository(private val context: Context) {
             val rules = dao.enabledRules()
             val now = System.currentTimeMillis()
             val cutoff = now - KEEP_DAYS * 86_400_000L
+            val alertCutoff = now - ALERT_KEEP_DAYS * 86_400_000L
 
             val fetches: List<Pair<Feed, FetchOutcome?>> = coroutineScope {
                 feeds.map { feed ->
                     async {
-                        fetchSemaphore.withPermit { feed to fetchFeed(feed, categories, rules, now, cutoff) }
+                        fetchSemaphore.withPermit { feed to fetchFeed(feed, categories, rules, now, cutoff, alertCutoff) }
                     }
                 }.awaitAll()
             }
@@ -205,7 +206,10 @@ class Repository(private val context: Context) {
                 }
             }
 
-            dao.pruneOlderThan(System.currentTimeMillis() - KEEP_DAYS * 86_400_000L)
+            dao.pruneOlderThan(cutoff)
+            // Rule matches live longer than the timeline, but not forever: a broad rule
+            // would otherwise grow the database without bound.
+            dao.pruneAlertsOlderThan(alertCutoff)
             // Drop cached bodies whose article just aged out, so the content table
             // doesn't outgrow the article list it mirrors.
             dao.pruneOrphanContent()
@@ -227,9 +231,10 @@ class Repository(private val context: Context) {
     /**
      * Fetches and parses one feed into ready-to-insert articles.
      * Returns null on any fetch/parse failure so the caller can report the feed,
-     * and pre-drops items already older than the prune cutoff (they would be
-     * inserted and immediately re-pruned on every refresh otherwise) — except
-     * rule matches, which the prune deliberately retains.
+     * and pre-drops items already older than their prune cutoff (they would be
+     * inserted and immediately re-pruned on every refresh otherwise). Rule matches
+     * get the longer [alertCutoff], mirroring the two prune windows exactly, so a
+     * pruned alert still listed in the feed can't come back as "new" and re-fire.
      */
     private suspend fun fetchFeed(
         feed: Feed,
@@ -237,6 +242,7 @@ class Repository(private val context: Context) {
         rules: List<KeywordRule>,
         now: Long,
         cutoff: Long,
+        alertCutoff: Long,
     ): FetchOutcome? = try {
         val request = Request.Builder()
             .url(feed.url)
@@ -278,7 +284,7 @@ class Repository(private val context: Context) {
                 )
             }
                 .filter { it.title.isNotBlank() }
-                .filter { it.publishedAt >= cutoff || it.matchedRules.isNotEmpty() }
+                .filter { it.publishedAt >= cutoff || (it.matchedRules.isNotEmpty() && it.publishedAt >= alertCutoff) }
             FetchOutcome(articles, parsed.isAtom)
         }
     } catch (e: CancellationException) {
@@ -390,6 +396,9 @@ class Repository(private val context: Context) {
 
     private companion object {
         const val KEEP_DAYS = 14
+
+        /** Unsaved keyword-rule matches are kept this long; saved articles are never pruned. */
+        const val ALERT_KEEP_DAYS = 90
         const val HTML_HEAD_PEEK_BYTES = 65_536L
         const val MAX_FEED_BYTES = 5 * 1024 * 1024
         val metaTag = Regex("""<meta\s+[^>]*>""", RegexOption.IGNORE_CASE)

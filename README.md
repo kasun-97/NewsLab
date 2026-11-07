@@ -62,7 +62,8 @@ reorderable lists.
 
 - WorkManager refreshes every 15 minutes, 30 minutes, 1, 2 or 4 hours on any network and
   posts a high-priority notification for new keyword matches.
-- Unsaved articles are pruned after 14 days.
+- Unsaved articles are pruned after 14 days, keyword-alert matches after 90 days. Saved
+  articles are never pruned.
 - Backup to a single SQLite file, or a zip that also carries the cached thumbnails;
   restore either. A full reset returns the app to its fresh-install state.
 - Statistics screen: counts, per-source breakdown, refresh history, on-disk footprint.

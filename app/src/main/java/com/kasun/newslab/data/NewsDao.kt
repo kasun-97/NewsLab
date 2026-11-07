@@ -135,10 +135,14 @@ interface NewsDao {
     @Query("DELETE FROM articles WHERE id = :id")
     suspend fun deleteArticle(id: String)
 
-    // Alert-matched articles are exempt, same as saved ones: pruning one and having its
-    // still-listed feed item reinserted as "new" on a later fetch would re-fire the alert.
+    // Alert-matched articles are exempt here and pruned on their own, longer window below.
     @Query("DELETE FROM articles WHERE isSaved = 0 AND matchedRules = '' AND publishedAt < :cutoff")
     suspend fun pruneOlderThan(cutoff: Long)
+
+    // The fetch pre-drops matched items older than the same cutoff, so a pruned alert
+    // still listed in its feed is never reinserted as "new" and can't re-fire.
+    @Query("DELETE FROM articles WHERE isSaved = 0 AND matchedRules != '' AND publishedAt < :cutoff")
+    suspend fun pruneAlertsOlderThan(cutoff: Long)
 
     @Query("DELETE FROM articles WHERE feedId = :feedId AND isSaved = 0")
     suspend fun deleteArticlesByFeed(feedId: Long)
