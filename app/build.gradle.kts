@@ -72,6 +72,17 @@ android {
     testOptions {
         unitTests.isIncludeAndroidResources = true
     }
+    // The exported Room schemas, read as assets by MigrationTestHelper in unit tests.
+    // Debug, not test: AGP doesn't merge the test source set's assets for local unit
+    // tests, and Robolectric reads only the debug variant's merged assets. Release and
+    // profiling builds don't carry them.
+    sourceSets.getByName("debug").assets.srcDir("$projectDir/schemas")
+}
+
+// Room writes one JSON schema per database version here. Commit each one: the
+// migration test validates the upgraded database against them.
+ksp {
+    arg("room.schemaLocation", "$projectDir/schemas")
 }
 
 dependencies {
@@ -98,6 +109,7 @@ dependencies {
     debugImplementation(libs.androidx.compose.ui.tooling)
     testImplementation(libs.junit)
     testImplementation(libs.robolectric)
+    testImplementation(libs.androidx.room.testing)
     androidTestImplementation(libs.androidx.test.ext.junit)
     androidTestImplementation(libs.androidx.test.runner)
 }
