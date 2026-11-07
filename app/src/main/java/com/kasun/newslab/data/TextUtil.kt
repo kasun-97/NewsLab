@@ -2,13 +2,20 @@ package com.kasun.newslab.data
 
 import androidx.core.text.HtmlCompat
 import java.security.MessageDigest
-import java.text.SimpleDateFormat
 import java.time.Instant
 import java.time.LocalDate
+import java.time.LocalDateTime
+import java.time.OffsetDateTime
 import java.time.ZoneId
+import java.time.chrono.IsoChronology
 import java.time.format.DateTimeFormatter
+import java.time.format.DateTimeFormatterBuilder
+import java.time.format.DateTimeParseException
+import java.time.format.ResolverStyle
+import java.time.format.SignStyle
+import java.time.temporal.ChronoField
+import java.time.temporal.TemporalQuery
 import java.util.Locale
-import java.util.TimeZone
 
 /**
  * Accent hues cycled through as sources are added. All sit on the cool half of the
@@ -79,48 +86,116 @@ object TextUtil {
     // Formats seen in the wild for the bundled feeds:
     //   EconomyNext (WordPress): "Mon, 20 Jul 2026 10:30:00 +0000"
     //   Daily Mirror:            "2026-07-20 21:08:00"  (Sri Lanka local time)
-    private val datePatterns = listOf(
-        "EEE, dd MMM yyyy HH:mm:ss Z",
-        "EEE, dd MMM yyyy HH:mm:ss zzz",
-        "EEE, dd MMM yyyy HH:mm Z",
-        "yyyy-MM-dd'T'HH:mm:ssXXX",
-        "yyyy-MM-dd'T'HH:mm:ss.SSSXXX",
-        "yyyy-MM-dd'T'HH:mm:ss",
-        "yyyy-MM-dd HH:mm:ss",
-        "yyyy-MM-dd HH:mm",
-        "dd MMM yyyy HH:mm:ss Z",
+    //   Atom feeds:              "2026-07-20T10:30:00.123+05:30"
+    //
+    // Every formatter must consume the whole string. SimpleDateFormat.parse(String)
+    // stopped at the first unreadable character, so an ISO timestamp with a zone it
+    // couldn't read (seven fraction digits, "+0530") fell through to the zoneless
+    // pattern, matched as a prefix and came out stamped as Colombo time.
+
+    // Text carrying no zone/offset comes from Sri Lankan outlets publishing
+    // local wall-clock time; parsing it in the device zone would skew it
+    // for any user travelling outside Asia/Colombo.
+    private val COLOMBO: ZoneId = ZoneId.of("Asia/Colombo")
+
+    private fun strict(builder: DateTimeFormatterBuilder): DateTimeFormatter =
+        builder.toFormatter(Locale.ENGLISH)
+            .withResolverStyle(ResolverStyle.STRICT)
+            .withChronology(IsoChronology.INSTANCE)
+
+    // ISO 8601 / RFC 3339 date and time (1-9 fraction digits, seconds optional), then
+    // an optional offset. The first formatter of each pair reads "Z" / "+05:30", the
+    // second "+0530" / "+05". They are separate formatters rather than two optional
+    // sections in one, which would also accept a doubled offset ("+05:30+0530").
+    private fun iso(separator: Char, offsetPattern: String): DateTimeFormatter = strict(
+        DateTimeFormatterBuilder()
+            .parseCaseInsensitive()
+            .append(DateTimeFormatter.ISO_LOCAL_DATE)
+            .appendLiteral(separator)
+            .append(DateTimeFormatter.ISO_LOCAL_TIME)
+            .optionalStart().appendOffset(offsetPattern, "Z").optionalEnd()
     )
 
-    // Patterns carrying no zone/offset come from Sri Lankan outlets publishing
-    // local wall-clock time; parsing them in the device zone would skew them
-    // for any user travelling outside Asia/Colombo.
-    private val zonelessPatterns = setOf(
-        "yyyy-MM-dd'T'HH:mm:ss",
-        "yyyy-MM-dd HH:mm:ss",
-        "yyyy-MM-dd HH:mm",
+    private val ISO_T = listOf(iso('T', "+HH:MM"), iso('T', "+HHmm"))
+    private val ISO_SPACE = listOf(iso(' ', "+HH:MM"), iso(' ', "+HHmm"))
+
+    private val OFFSET_DATE_TIME = TemporalQuery(OffsetDateTime::from)
+    private val LOCAL_DATE_TIME = TemporalQuery(LocalDateTime::from)
+
+    // Fixed so parsing never depends on the platform's locale data.
+    private val MONTHS = listOf("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
+        .withIndex().associate { (i, name) -> (i + 1).toLong() to name }
+
+    // RFC 822 / 1123 after the day name and any zone name are dealt with (below):
+    // "20 Jul 2026 10:30:00 +0000", seconds optional.
+    private val RFC_822: DateTimeFormatter = strict(
+        DateTimeFormatterBuilder()
+            .parseCaseInsensitive()
+            .appendValue(ChronoField.DAY_OF_MONTH, 1, 2, SignStyle.NOT_NEGATIVE).appendLiteral(' ')
+            .appendText(ChronoField.MONTH_OF_YEAR, MONTHS).appendLiteral(' ')
+            .appendValue(ChronoField.YEAR, 4).appendLiteral(' ')
+            .appendValue(ChronoField.HOUR_OF_DAY, 2).appendLiteral(':')
+            .appendValue(ChronoField.MINUTE_OF_HOUR, 2)
+            .optionalStart().appendLiteral(':').appendValue(ChronoField.SECOND_OF_MINUTE, 2).optionalEnd()
+            .appendLiteral(' ')
+            .appendOffset("+HHMM", "+0000")
+    )
+
+    // The day name is stripped rather than parsed: java.time would reject a day name
+    // that disagrees with the date, and feeds do get it wrong. It is redundant anyway.
+    private val RFC_822_DAY_NAME = Regex("^(?:mon|tue|wed|thu|fri|sat|sun),\\s*", RegexOption.IGNORE_CASE)
+    private val RFC_822_ZONE_NAME = Regex(" ([a-z]{1,3})$", RegexOption.IGNORE_CASE)
+
+    // The zone names RFC 822 defines, as the fixed offsets it gives them. (A region zone
+    // such as America/New_York would apply DST to "EST", which RFC 822 does not.)
+    private val RFC_822_ZONES = mapOf(
+        "GMT" to "+0000", "UT" to "+0000", "UTC" to "+0000", "Z" to "+0000",
+        "EST" to "-0500", "EDT" to "-0400",
+        "CST" to "-0600", "CDT" to "-0500",
+        "MST" to "-0700", "MDT" to "-0600",
+        "PST" to "-0800", "PDT" to "-0700",
     )
 
     fun parseDate(raw: String): Long {
         val s = raw.trim()
         if (s.isEmpty()) return System.currentTimeMillis()
-        // A date starting with a letter is a day name ("Mon, 20 Jul ..."), one starting
-        // with a digit isn't. Trying the matching group first turns the usual seven
-        // failed parses — each filling in a stack trace — into a hit on the first go.
-        // Every pattern is still tried, so nothing parses differently than before.
-        val dayNameFirst = s[0].isLetter()
-        val ordered = if (dayNameFirst) datePatterns else datePatterns.sortedBy { it.startsWith("EEE") }
-        for (pattern in ordered) {
+        // "2026-07-20..." is ISO; anything else ("Mon, 20 Jul ...", "20 Jul ...") is RFC 822.
+        // Choosing up front means the common shapes parse on the first attempt.
+        val millis = if (s.length > 10 && s[4] == '-') parseIso(s) else parseRfc822(s)
+        return millis ?: System.currentTimeMillis()
+    }
+
+    private fun parseIso(s: String): Long? {
+        val formatters = when (s[10]) {
+            'T', 't' -> ISO_T
+            ' ' -> ISO_SPACE
+            else -> return null
+        }
+        for (formatter in formatters) {
             try {
-                val format = SimpleDateFormat(pattern, Locale.ENGLISH)
-                if (pattern in zonelessPatterns) {
-                    format.timeZone = TimeZone.getTimeZone("Asia/Colombo")
+                return when (val t = formatter.parseBest(s, OFFSET_DATE_TIME, LOCAL_DATE_TIME)) {
+                    is OffsetDateTime -> t.toInstant().toEpochMilli()
+                    else -> (t as LocalDateTime).atZone(COLOMBO).toInstant().toEpochMilli()
                 }
-                return format.parse(s)!!.time
-            } catch (_: Exception) {
-                // try next pattern
+            } catch (_: DateTimeParseException) {
+                // try the other offset style
             }
         }
-        return System.currentTimeMillis()
+        return null
+    }
+
+    private fun parseRfc822(s: String): Long? {
+        var text = RFC_822_DAY_NAME.replaceFirst(s, "")
+        val zone = RFC_822_ZONE_NAME.find(text)
+        if (zone != null) {
+            val offset = RFC_822_ZONES[zone.groupValues[1].uppercase(Locale.ROOT)] ?: return null
+            text = text.substring(0, zone.range.first + 1) + offset
+        }
+        return try {
+            OffsetDateTime.parse(text, RFC_822).toInstant().toEpochMilli()
+        } catch (_: DateTimeParseException) {
+            null
+        }
     }
 
     // DateTimeFormatter is immutable and thread-safe, so unlike SimpleDateFormat these

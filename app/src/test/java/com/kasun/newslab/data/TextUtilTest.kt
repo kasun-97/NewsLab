@@ -80,10 +80,65 @@ class TextUtilTest {
     }
 
     @Test
+    fun parsesRfc822Variants() {
+        // Without seconds, with and without the day name.
+        assertEquals(utc1030, TextUtil.parseDate("Mon, 20 Jul 2026 10:30 GMT"))
+        assertEquals(utc1030, TextUtil.parseDate("20 Jul 2026 10:30 +0000"))
+        assertEquals(utc1030, TextUtil.parseDate("20 Jul 2026 10:30:00 GMT"))
+        // Single-digit day.
+        assertEquals(utc1030 - 14 * 86_400_000L, TextUtil.parseDate("Mon, 6 Jul 2026 10:30:00 +0000"))
+        // Negative offset.
+        assertEquals(utc1030, TextUtil.parseDate("Mon, 20 Jul 2026 05:30:00 -0500"))
+        // English names, any case.
+        assertEquals(utc1030, TextUtil.parseDate("MON, 20 JUL 2026 10:30:00 gmt"))
+        assertEquals(utc1030, TextUtil.parseDate("mon, 20 jul 2026 10:30:00 +0000"))
+        // A day name that disagrees with the date is ignored, as SimpleDateFormat did.
+        assertEquals(utc1030, TextUtil.parseDate("Tue, 20 Jul 2026 10:30:00 +0000"))
+    }
+
+    @Test
+    fun parsesRfc822ZoneNamesAsFixedOffsets() {
+        for (zone in listOf("GMT", "UT", "UTC", "Z")) {
+            assertEquals(zone, utc1030, TextUtil.parseDate("Mon, 20 Jul 2026 10:30:00 $zone"))
+        }
+        // RFC 822 gives each US zone a fixed offset; EST stays -05:00 even in July.
+        val local = mapOf(
+            "EST" to "05:30", "EDT" to "06:30",
+            "CST" to "04:30", "CDT" to "05:30",
+            "MST" to "03:30", "MDT" to "04:30",
+            "PST" to "02:30", "PDT" to "03:30",
+        )
+        for ((zone, time) in local) {
+            assertEquals(zone, utc1030, TextUtil.parseDate("Mon, 20 Jul 2026 $time:00 $zone"))
+        }
+    }
+
+    @Test
     fun parsesIsoWithOffset() {
         assertEquals(utc1030, TextUtil.parseDate("2026-07-20T16:00:00+05:30"))
         assertEquals(utc1030, TextUtil.parseDate("2026-07-20T10:30:00Z"))
         assertEquals(utc1030 + 123, TextUtil.parseDate("2026-07-20T10:30:00.123Z"))
+    }
+
+    @Test
+    fun parsesIsoVariants() {
+        assertEquals(utc1030 + 100, TextUtil.parseDate("2026-07-20T10:30:00.1Z"))
+        assertEquals(utc1030 + 123, TextUtil.parseDate("2026-07-20T10:30:00.123456789Z"))
+        assertEquals(utc1030 + 500, TextUtil.parseDate("2026-07-20T16:00:00.5+05:30"))
+        assertEquals(utc1030, TextUtil.parseDate("2026-07-20T05:30:00-05:00"))
+        assertEquals(utc1030, TextUtil.parseDate("2026-07-20T05:30:00-0500"))
+        assertEquals(utc1030, TextUtil.parseDate("2026-07-20T15:30:00+05"))
+        assertEquals(utc1030, TextUtil.parseDate("2026-07-20T10:30:00+00:00"))
+        // RFC 3339 allows lower-case separators.
+        assertEquals(utc1030, TextUtil.parseDate("2026-07-20t10:30:00z"))
+    }
+
+    @Test
+    fun isoOffsetsTheOldParserMisreadAsColomboTime() {
+        // Seven fraction digits: was cut at the seconds and read as Colombo time.
+        assertEquals(utc1030 + 123, TextUtil.parseDate("2026-07-20T10:30:00.1234567Z"))
+        // Offset without a colon: 10:30 at +05:30 is 05:00 UTC.
+        assertEquals(utc1030 - 19_800_000L, TextUtil.parseDate("2026-07-20T10:30:00+0530"))
     }
 
     @Test
@@ -92,11 +147,34 @@ class TextUtilTest {
         assertEquals(utc1030, TextUtil.parseDate("2026-07-20 16:00:00"))
         assertEquals(utc1030, TextUtil.parseDate("2026-07-20T16:00:00"))
         assertEquals(utc1030, TextUtil.parseDate("2026-07-20 16:00"))
+        assertEquals(
+            TextUtil.parseDate("2026-07-20T21:08:00+05:30"),
+            TextUtil.parseDate("2026-07-20 21:08:00"),
+        )
+    }
+
+    @Test
+    fun toleratesSurroundingWhitespace() {
+        assertEquals(utc1030, TextUtil.parseDate("  2026-07-20T10:30:00Z \n"))
+        assertEquals(utc1030, TextUtil.parseDate("\tMon, 20 Jul 2026 10:30:00 GMT  "))
+        assertEquals(utc1030, TextUtil.parseDate(" 2026-07-20 16:00:00 "))
     }
 
     @Test
     fun unparseableOrEmptyFallsBackToNow() {
-        for (raw in listOf("", "   ", "not a date")) {
+        val bad = listOf(
+            "", "   ", "not a date",
+            // Trailing text: the whole string has to be a date.
+            "2026-07-20T10:30:00Z garbage",
+            "2026-07-20 16:00:00 junk",
+            "Mon, 20 Jul 2026 10:30:00 +0000 extra",
+            "2026-07-20T10:30:00+05:30+0530",
+            // Unknown zone name, impossible date or time.
+            "Mon, 20 Jul 2026 10:30:00 XYZ",
+            "2026-02-31T10:00:00Z",
+            "Mon, 20 Jul 2026 25:00:00 +0000",
+        )
+        for (raw in bad) {
             val before = System.currentTimeMillis()
             val parsed = TextUtil.parseDate(raw)
             val after = System.currentTimeMillis()
