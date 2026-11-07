@@ -7,6 +7,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.kasun.newslab.data.AlertTrend
 import com.kasun.newslab.data.AppFont
 import com.kasun.newslab.data.Article
 import com.kasun.newslab.data.ArticleExtractor
@@ -27,6 +28,7 @@ import com.kasun.newslab.data.QuickLink
 import com.kasun.newslab.data.QuickLinkList
 import com.kasun.newslab.data.Repository
 import com.kasun.newslab.data.DesignStyle
+import com.kasun.newslab.data.TextUtil
 import com.kasun.newslab.data.ThemeMode
 import com.kasun.newslab.work.Notifier
 import com.kasun.newslab.work.RefreshWorker
@@ -43,6 +45,7 @@ import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class MainViewModel(app: Application) : AndroidViewModel(app) {
 
@@ -637,5 +640,17 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             refresh()
         }
         prefs.setOnboardingComplete()
+    }
+
+    /**
+     * The Statistics screen's 30-day keyword-match chart. A one-shot read rather than
+     * a Flow: it's looked at once per visit, and a live query would re-aggregate on
+     * every refresh's inserts for a chart nobody is watching change.
+     */
+    suspend fun alertTrend(): AlertTrend.Trend {
+        val todayStart = TextUtil.startOfToday()
+        val rows = dao.alertMatchesSince(AlertTrend.windowStart(todayStart))
+        val currentRules = dao.rules().first()
+        return withContext(Dispatchers.Default) { AlertTrend.aggregate(rows, currentRules, todayStart) }
     }
 }

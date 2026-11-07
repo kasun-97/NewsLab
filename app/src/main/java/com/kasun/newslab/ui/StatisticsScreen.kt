@@ -1,5 +1,6 @@
 package com.kasun.newslab.ui
 
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -31,18 +32,27 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.kasun.newslab.MainViewModel
+import com.kasun.newslab.data.AlertTrend
 import com.kasun.newslab.data.TextUtil
 import com.kasun.newslab.ui.theme.nd
 import com.kasun.newslab.ui.theme.sourceHue
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+import java.util.Locale
 
 /** On-disk footprint of the app's own persisted data (article DB) and Coil's image cache. */
 private data class StorageStats(val databaseBytes: Long, val imageCacheBytes: Long)
@@ -85,6 +95,8 @@ fun StatisticsScreen(vm: MainViewModel, onBack: () -> Unit, listState: LazyListS
     val context = LocalContext.current
     var storage by remember { mutableStateOf<StorageStats?>(null) }
     LaunchedEffect(Unit) { storage = measureStorage(context) }
+    var alertTrend by remember { mutableStateOf<AlertTrend.Trend?>(null) }
+    LaunchedEffect(Unit) { alertTrend = vm.alertTrend() }
 
     Column(Modifier.fillMaxSize()) {
         Row(
@@ -107,6 +119,24 @@ fun StatisticsScreen(vm: MainViewModel, onBack: () -> Unit, listState: LazyListS
             item { StatRow("Keyword rules", "${rules.size}") }
             item {
                 StatRow("Last refreshed", if (lastRefreshAt == 0L) "Never" else TextUtil.timeAgo(lastRefreshAt))
+            }
+            item { SectionLabel("KEYWORD MATCHES, LAST 30 DAYS", nd.muted) }
+            val trend = alertTrend
+            when {
+                trend == null -> item { StatRow("Total matches", "…") }
+                trend.total == 0 -> item {
+                    Text(
+                        "No keyword matches in the last 30 days",
+                        Modifier.padding(horizontal = Gutter, vertical = 8.dp),
+                        fontSize = 14.sp,
+                        color = nd.muted,
+                    )
+                }
+                else -> {
+                    item { MatchTrendChart(trend) }
+                    item { StatRow("Total matches", "${trend.total}") }
+                    items(trend.topRules) { StatRow(it.label, "${it.count}") }
+                }
             }
             item { SectionLabel("STORAGE", nd.muted) }
             item { StatRow("Database", storage?.let { TextUtil.formatBytes(it.databaseBytes) } ?: "…") }
@@ -140,5 +170,47 @@ private fun SourceStatRow(name: String, color: Long, count: Int) {
             overflow = TextOverflow.Ellipsis,
         )
         Text("$count", fontSize = 13.sp, color = nd.faint)
+    }
+}
+
+// Same short form timeAgo uses for older articles, so the axis reads like the rest of the app.
+private val TREND_AXIS_DATE = DateTimeFormatter.ofPattern("MMM d", Locale.ENGLISH)
+
+/**
+ * One bar per day, oldest left, scaled to the busiest day. A day with any matches
+ * never draws shorter than a sliver, so a lone match beside a busy day still shows;
+ * empty days draw nothing above the baseline, which keeps quiet stretches readable.
+ */
+@Composable
+private fun MatchTrendChart(trend: AlertTrend.Trend) {
+    val barColor = nd.brandStroke
+    val baselineColor = nd.border
+    val startLabel = remember(trend.windowStart) {
+        TREND_AXIS_DATE.format(Instant.ofEpochMilli(trend.windowStart).atZone(ZoneId.systemDefault()))
+    }
+    Column(Modifier.fillMaxWidth().padding(horizontal = Gutter, vertical = 8.dp)) {
+        Canvas(
+            Modifier.fillMaxWidth().height(64.dp).semantics {
+                contentDescription = "Keyword matches per day since $startLabel, ${trend.total} in total"
+            },
+        ) {
+            val days = trend.daily.size
+            val peak = trend.daily.maxOrNull()?.coerceAtLeast(1) ?: 1
+            val gap = 2.dp.toPx()
+            val barWidth = (size.width - gap * (days - 1)) / days
+            val baseline = 1.dp.toPx()
+            val plotHeight = size.height - baseline
+            trend.daily.forEachIndexed { i, count ->
+                if (count == 0) return@forEachIndexed
+                val h = (plotHeight * count / peak).coerceAtLeast(2.dp.toPx())
+                drawRect(barColor, Offset(i * (barWidth + gap), plotHeight - h), Size(barWidth, h))
+            }
+            drawRect(baselineColor, Offset(0f, plotHeight), Size(size.width, baseline))
+        }
+        Spacer(Modifier.height(4.dp))
+        Row(Modifier.fillMaxWidth()) {
+            Text(startLabel, Modifier.weight(1f), fontSize = 11.sp, color = nd.faint)
+            Text("Today", fontSize = 11.sp, color = nd.faint)
+        }
     }
 }
