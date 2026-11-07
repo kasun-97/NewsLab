@@ -16,6 +16,7 @@ import com.kasun.newslab.data.Category
 import com.kasun.newslab.data.Feed
 import com.kasun.newslab.data.FeedDiscovery
 import com.kasun.newslab.data.FeedGroup
+import com.kasun.newslab.data.FeedHealth
 import com.kasun.newslab.data.FontSize
 import com.kasun.newslab.data.ImportResult
 import com.kasun.newslab.data.ListLayout
@@ -311,6 +312,34 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     fun deleteFeed(feed: Feed) = viewModelScope.launch {
         dao.deleteFeedCompletely(feed)
+    }
+
+    /**
+     * Re-runs discovery on a failing source's site root, for "Find feed again". The
+     * outcomes that leave nothing to choose are reported here as a message; the caller
+     * only has to act on one or several new addresses.
+     */
+    suspend fun rediscoverFeed(feed: Feed): FeedHealth.Rediscovery {
+        val root = FeedHealth.siteRoot(feed.url)
+        val found = if (root == null) emptyList() else FeedDiscovery.discover(root)
+        val outcome = FeedHealth.rediscovery(found, feed.url)
+        val site = root?.removeSuffix("/")?.substringAfter("://") ?: feed.name
+        when (outcome) {
+            FeedHealth.Rediscovery.NotFound -> _messages.emit("No feed found on $site")
+            FeedHealth.Rediscovery.SameUrl -> _messages.emit("Only found the address ${feed.name} already uses")
+            else -> Unit
+        }
+        return outcome
+    }
+
+    /**
+     * Points a source at a newly found address and fetches straight away, so a fixed
+     * source leaves the problems list now rather than at the next scheduled refresh.
+     * Goes through [updateFeed] so the stale validators are dropped the usual way.
+     */
+    fun replaceFeedUrl(feed: Feed, url: String, groupIds: Set<Long>) = viewModelScope.launch {
+        updateFeed(feed, feed.name, url, groupIds).join()
+        refresh()
     }
 
     // ---- OPML ----
