@@ -63,6 +63,49 @@ class RuleMatcherTest {
         // before calling, and is the only production caller.
         assertFalse(RuleMatcher.matches("imf", "IMF deal"))
     }
+
+    @Test
+    fun dashedWordExcludes() {
+        assertTrue(RuleMatcher.matches("loan -imf", "world bank approves a loan"))
+        assertFalse(RuleMatcher.matches("loan -imf", "the imf approved a loan tranche"))
+        // Exclusions are substring-based like everything else.
+        assertFalse(RuleMatcher.matches("bank -rate", "central bank holds rates"))
+    }
+
+    @Test
+    fun dashedQuotedPhraseExcludesOnlyTheWholePhrase() {
+        assertFalse(RuleMatcher.matches("sri lanka -\"world cup\"", "sri lanka win world cup opener"))
+        // The words on their own, apart, do not trip the phrase exclusion.
+        assertTrue(RuleMatcher.matches("sri lanka -\"world cup\"", "sri lanka cup final, world reacts"))
+    }
+
+    @Test
+    fun tokenizeAndExclusionsSplitAMixedQuery() {
+        val query = "IMF -Argentina \"Rate Cut\" -\"World Cup\""
+        assertEquals(listOf("imf", "rate cut"), RuleMatcher.tokenize(query))
+        assertEquals(listOf("argentina", "world cup"), RuleMatcher.exclusions(query))
+        assertTrue(RuleMatcher.matches(query, "imf backs rate cut in sri lanka"))
+        assertFalse(RuleMatcher.matches(query, "imf backs rate cut in argentina"))
+        assertFalse(RuleMatcher.matches(query, "imf rate cut talk overshadowed by world cup"))
+        assertFalse(RuleMatcher.matches(query, "imf mission arrives"))
+    }
+
+    @Test
+    fun onlyExclusionsNeverMatches() {
+        assertFalse(RuleMatcher.matches("-imf", "cricket score"))
+        assertFalse(RuleMatcher.matches("-imf -\"world cup\"", "cricket score"))
+        assertEquals(emptyList<String>(), RuleMatcher.tokenize("-imf"))
+    }
+
+    @Test
+    fun loneDashIsIgnored() {
+        assertEquals(listOf("imf"), RuleMatcher.tokenize("imf -"))
+        assertEquals(emptyList<String>(), RuleMatcher.exclusions("imf -"))
+        assertTrue(RuleMatcher.matches("imf -", "imf deal"))
+        assertFalse(RuleMatcher.matches("-", "anything at all"))
+        // A dash only negates at the start of a token; hyphenated words stay positive.
+        assertTrue(RuleMatcher.matches("co-op", "co-op bank results"))
+    }
 }
 
 class ClassifierTest {
@@ -124,6 +167,19 @@ class ClassifierTest {
         assertEquals(",2,4,", c.ruleIds)
         assertEquals("IMF" + Classifier.LABEL_SEPARATOR + "Rates", c.ruleLabels)
         assertEquals(listOf("IMF", "Rates"), Classifier.splitLabels(c.ruleLabels))
+    }
+
+    @Test
+    fun exclusionsApplyAgainstTheLowercasedHaystack() {
+        // Title and tags are mixed case; classify lowercases them, so -"World Cup"
+        // still rules the article out and a plain exclusion is checked in tags too.
+        val rules = listOf(
+            KeywordRule(id = 2, label = "Sri Lanka", query = "\"sri lanka\" -\"World Cup\""),
+            KeywordRule(id = 4, label = "IMF", query = "imf -Sport"),
+        )
+        assertEquals("", classify("Sri Lanka in WORLD CUP final", rules = rules).ruleIds)
+        assertEquals(",2,", classify("Sri Lanka signs IMF deal", tags = listOf("Sport"), rules = rules).ruleIds)
+        assertEquals(",2,4,", classify("Sri Lanka signs IMF deal", rules = rules).ruleIds)
     }
 
     @Test

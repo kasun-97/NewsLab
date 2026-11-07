@@ -128,6 +128,8 @@ fun KeywordRulesScreen(vm: MainViewModel, onBack: () -> Unit, listState: LazyLis
                 Text(
                     "A rule fires when all of its words appear in an article's title or summary, " +
                         "in any order. Wrap words in \"quotes\" to require an exact phrase. " +
+                        "Put - in front of a word or phrase (-imf, -\"world cup\") to skip " +
+                        "articles that mention it. " +
                         "Matching is case-insensitive. Matches are pinned to the top of your inbox " +
                         "and shown in the Alerts tab.",
                     Modifier.padding(18.dp),

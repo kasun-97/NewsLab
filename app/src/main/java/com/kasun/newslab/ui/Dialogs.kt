@@ -339,7 +339,9 @@ fun RuleDialog(
                 Spacer(Modifier.height(6.dp))
                 Text(
                     "Fires when ALL words appear in an article, in any order. " +
-                        "Wrap words in \"quotes\" to require the exact phrase.",
+                        "Wrap words in \"quotes\" to require the exact phrase. " +
+                        "Put - in front of a word or phrase to skip articles that " +
+                        "mention it: -imf, -\"world cup\".",
                     fontSize = 12.sp,
                 )
                 Spacer(Modifier.height(10.dp))
