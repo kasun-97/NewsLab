@@ -1,0 +1,22 @@
+*.iml
+.gradle
+/local.properties
+/.idea
+.DS_Store
+/build
+*/build
+/captures
+.externalNativeBuild
+.cxx
+*.apk
+*.aab
+output-metadata.json
+
+# Claude Code session data and Kotlin compiler caches
+.claude/
+.kotlin/
+
+# Signing material never belongs in the repo
+*.jks
+*.keystore
+keystore.properties

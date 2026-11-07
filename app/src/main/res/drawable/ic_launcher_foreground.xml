@@ -1,0 +1,23 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!--
+      NewsLab "stack" mark: three cards stepped down the diagonal — the same story
+      arriving from several sources. Geometry is the design's 2a (Amber) finish, taken
+      on the full 108 canvas: a 44% box centred at 54, so the mark fills about two
+      thirds of the 72dp a launcher actually shows and stays inside the safe circle.
+      The two cards behind are the same ink at 24% and 52%, which over the amber
+      background reads as the stack receding.
+    -->
+    <path
+        android:fillColor="#3D14110E"
+        android:pathData="M37.26,30.24 L52.38,30.24 A7.02,7.02 0 0 1 59.4,37.26 L59.4,52.38 A7.02,7.02 0 0 1 52.38,59.4 L37.26,59.4 A7.02,7.02 0 0 1 30.24,52.38 L30.24,37.26 A7.02,7.02 0 0 1 37.26,30.24 Z" />
+    <path
+        android:fillColor="#8514110E"
+        android:pathData="M45.468,37.584 L62.532,37.584 A7.884,7.884 0 0 1 70.416,45.468 L70.416,62.532 A7.884,7.884 0 0 1 62.532,70.416 L45.468,70.416 A7.884,7.884 0 0 1 37.584,62.532 L37.584,45.468 A7.884,7.884 0 0 1 45.468,37.584 Z" />
+    <path
+        android:fillColor="#FF14110E"
+        android:pathData="M55.62,48.6 L70.74,48.6 A7.02,7.02 0 0 1 77.76,55.62 L77.76,70.74 A7.02,7.02 0 0 1 70.74,77.76 L55.62,77.76 A7.02,7.02 0 0 1 48.6,70.74 L48.6,55.62 A7.02,7.02 0 0 1 55.62,48.6 Z" />
+</vector>

@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Bold instance of the variable face, for the share card's wordmark, category chip
+  and headline. Canvas drawing needs a plain Typeface rather than a Compose
+  FontFamily, and the `wght` axis can only be pinned from XML at this level.
+-->
+<font-family xmlns:android="http://schemas.android.com/apk/res/android">
+    <font
+        android:font="@font/archivo_narrow"
+        android:fontStyle="normal"
+        android:fontVariationSettings="'wght' 700"
+        android:fontWeight="700" />
+</font-family>
