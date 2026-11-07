@@ -16,6 +16,8 @@ coil = "2.7.0"
 jsoup = "1.18.3"
 testExtJunit = "1.2.1"
 testRunner = "1.6.2"
+junit = "4.13.2"
+robolectric = "4.14.1"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -41,6 +43,8 @@ coil-compose = { group = "io.coil-kt", name = "coil-compose", version.ref = "coi
 jsoup = { group = "org.jsoup", name = "jsoup", version.ref = "jsoup" }
 androidx-test-ext-junit = { group = "androidx.test.ext", name = "junit", version.ref = "testExtJunit" }
 androidx-test-runner = { group = "androidx.test", name = "runner", version.ref = "testRunner" }
+junit = { group = "junit", name = "junit", version.ref = "junit" }
+robolectric = { group = "org.robolectric", name = "robolectric", version.ref = "robolectric" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

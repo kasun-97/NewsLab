@@ -102,8 +102,15 @@ page. `assembleRelease` is minified with R8; it signs the APK only if an untrack
 root, and otherwise produces an unsigned APK. A `profiling` build type gives release code
 signed with the debug key for on-device performance checks.
 
-The one automated test is an instrumented render of the share card. Run it with a device
-attached:
+JVM unit tests cover the pure logic: keyword rules and categories, story clustering, robots.txt
+parsing, text cleaning and date parsing, the RSS/Atom parser and OPML import/export (the last three
+under Robolectric, so no device is needed). CI runs them on pushes and pull requests to `main`:
+
+```bash
+./gradlew :app:testDebugUnitTest
+```
+
+The one instrumented test is a render of the share card. Run it with a device attached:
 
 ```bash
 ./gradlew :app:connectedDebugAndroidTest

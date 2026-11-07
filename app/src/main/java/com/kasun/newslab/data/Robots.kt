@@ -52,7 +52,7 @@ internal object Robots {
         }
     }
 
-    private fun parse(content: String): Rules {
+    internal fun parse(content: String): Rules {
         val groups = mutableListOf<Group>()
         var current: Group? = null
         var lastWasAgent = false
@@ -110,9 +110,9 @@ internal object Robots {
         val rules = mutableListOf<Rule>()
     }
 
-    private data class Rule(val allow: Boolean, val pattern: String)
+    internal data class Rule(val allow: Boolean, val pattern: String)
 
-    private class Rules(private val rules: List<Rule>) {
+    internal class Rules(private val rules: List<Rule>) {
         /** Longest-match wins; on an equal-length tie, Allow beats Disallow. */
         fun allows(path: String): Boolean {
             var best: Rule? = null
