@@ -1,5 +1,6 @@
 package com.kasun.newslab.ui
 
+import android.app.TimePickerDialog
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
@@ -57,6 +58,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import com.kasun.newslab.MainViewModel
+import com.kasun.newslab.data.AlertPolicy
 import com.kasun.newslab.data.AppFont
 import com.kasun.newslab.data.BackupManager
 import com.kasun.newslab.data.DesignStyle
@@ -355,6 +357,43 @@ fun SettingsScreen(
             }
             NdSwitch(checked = notifications, onCheckedChange = { vm.setNotifications(it) })
         }
+        // Refinements of the master switch, so shown only while it's on, like the
+        // high-quality images row under its parent.
+        if (notifications) {
+            val digest by vm.digestNotifications.collectAsState()
+            val quietHours by vm.quietHoursEnabled.collectAsState()
+            val quietStart by vm.quietHoursStartMinutes.collectAsState()
+            val quietEnd by vm.quietHoursEndMinutes.collectAsState()
+            NotificationSubRow(
+                title = "Digest notification",
+                subtitle = "When a check finds several matches, post one summary listing them " +
+                    "instead of one notification each.",
+            ) {
+                NdSwitch(checked = digest, onCheckedChange = { vm.setDigestNotifications(it) })
+            }
+            NotificationSubRow(
+                title = "Quiet hours",
+                subtitle = "Hold alerts during these hours and post them after. " +
+                    "Matches still appear in the app as usual.",
+            ) {
+                NdSwitch(checked = quietHours, onCheckedChange = { vm.setQuietHoursEnabled(it) })
+            }
+            if (quietHours) {
+                // The platform picker: a few lines here instead of a Compose time
+                // picker dependency for two rows.
+                val pickTime: (Int, (Int) -> Unit) -> Unit = { current, onPicked ->
+                    TimePickerDialog(
+                        context,
+                        { _, hour, minute -> onPicked(hour * 60 + minute) },
+                        current / 60,
+                        current % 60,
+                        true,
+                    ).show()
+                }
+                QuietTimeRow("Starts", quietStart) { pickTime(quietStart, vm::setQuietHoursStartMinutes) }
+                QuietTimeRow("Ends", quietEnd) { pickTime(quietEnd, vm::setQuietHoursEndMinutes) }
+            }
+        }
 
         SectionLabel("READING", nd.muted)
         Row(
@@ -570,6 +609,43 @@ private fun openBatteryOptimizationSettings(context: Context) {
             return
         } catch (_: Exception) {
             // Some OEM ROMs don't ship this screen; fall through to the next.
+        }
+    }
+}
+
+/** An indented row under the Keyword alerts switch, with its control on the right. */
+@Composable
+private fun NotificationSubRow(title: String, subtitle: String, control: @Composable () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().padding(start = 34.dp, end = 18.dp, top = 4.dp, bottom = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(title, fontSize = 14.sp, fontWeight = FontWeight.Medium, color = nd.ink)
+            Text(subtitle, fontSize = 12.sp, color = nd.faint, lineHeight = 16.sp)
+        }
+        control()
+    }
+}
+
+/** A quiet-hours bound as a tappable "22:00" chip, opening the time picker. */
+@Composable
+private fun QuietTimeRow(label: String, minutes: Int, onClick: () -> Unit) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(start = 52.dp, end = 18.dp, top = 6.dp, bottom = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(label, Modifier.weight(1f), fontSize = 14.sp, color = nd.ink)
+        Box(
+            Modifier
+                .clip(RoundedCornerShape(2.dp))
+                .background(nd.chipBg)
+                .padding(horizontal = 12.dp, vertical = 6.dp)
+        ) {
+            Text(AlertPolicy.clockLabel(minutes), fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = nd.ink)
         }
     }
 }

@@ -20,6 +20,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Edit
+import androidx.compose.material.icons.outlined.NotificationsOff
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -66,7 +67,7 @@ fun KeywordRulesScreen(vm: MainViewModel, onBack: () -> Unit, listState: LazyLis
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Column(Modifier.weight(1f)) {
-                        Row {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
                             // A live rule wears the amber tag; a paused one is outlined and
                             // faint — amber withdrawn entirely, since the rule is off.
                             if (rule.enabled) {
@@ -96,6 +97,17 @@ fun KeywordRulesScreen(vm: MainViewModel, onBack: () -> Unit, listState: LazyLis
                                         color = nd.faint,
                                     )
                                 }
+                            }
+                            // Silent rules still pin their matches, so the row says why
+                            // nothing buzzes rather than leaving it to be discovered.
+                            if (!rule.notify) {
+                                Spacer(Modifier.width(6.dp))
+                                Icon(
+                                    Icons.Outlined.NotificationsOff,
+                                    contentDescription = "Notifications off",
+                                    modifier = Modifier.size(16.dp),
+                                    tint = nd.faint,
+                                )
                             }
                         }
                         if (rule.query != rule.label) {
@@ -144,8 +156,8 @@ fun KeywordRulesScreen(vm: MainViewModel, onBack: () -> Unit, listState: LazyLis
     if (showAddRule) {
         RuleDialog(
             onDismiss = { showAddRule = false },
-            onConfirm = { label, query ->
-                vm.addRule(label, query)
+            onConfirm = { label, query, notify ->
+                vm.addRule(label, query, notify)
                 showAddRule = false
             },
         )
@@ -155,9 +167,10 @@ fun KeywordRulesScreen(vm: MainViewModel, onBack: () -> Unit, listState: LazyLis
             title = "Edit keyword rule",
             initialLabel = rule.label,
             initialQuery = rule.query,
+            initialNotify = rule.notify,
             onDismiss = { editRuleId = null },
-            onConfirm = { label, query ->
-                vm.updateRule(rule, label, query)
+            onConfirm = { label, query, notify ->
+                vm.updateRule(rule, label, query, notify)
                 editRuleId = null
             },
         )

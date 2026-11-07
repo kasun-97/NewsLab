@@ -22,6 +22,8 @@ import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Download
 import androidx.compose.material.icons.outlined.Edit
+import androidx.compose.material.icons.outlined.Notifications
+import androidx.compose.material.icons.outlined.NotificationsOff
 import androidx.compose.material.icons.outlined.Upload
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.HorizontalDivider
@@ -156,6 +158,7 @@ fun SourcesScreen(vm: MainViewModel, onBack: () -> Unit, listState: LazyListStat
                         feed = feed,
                         onEdit = { editFeedId = feed.id },
                         onToggle = { vm.toggleFeed(feed) },
+                        onToggleMute = { vm.toggleFeedMuted(feed) },
                         onDelete = { confirmDeleteFeedId = feed.id },
                     )
                 }
@@ -176,6 +179,7 @@ fun SourcesScreen(vm: MainViewModel, onBack: () -> Unit, listState: LazyListStat
                             feed = feed,
                             onEdit = { editFeedId = feed.id },
                             onToggle = { vm.toggleFeed(feed) },
+                            onToggleMute = { vm.toggleFeedMuted(feed) },
                             onDelete = { confirmDeleteFeedId = feed.id },
                         )
                     }
@@ -188,6 +192,7 @@ fun SourcesScreen(vm: MainViewModel, onBack: () -> Unit, listState: LazyListStat
                             feed = feed,
                             onEdit = { editFeedId = feed.id },
                             onToggle = { vm.toggleFeed(feed) },
+                            onToggleMute = { vm.toggleFeedMuted(feed) },
                             onDelete = { confirmDeleteFeedId = feed.id },
                         )
                     }
@@ -398,7 +403,13 @@ private fun FeedPickDialog(
 }
 
 @Composable
-private fun FeedRow(feed: Feed, onEdit: () -> Unit, onToggle: () -> Unit, onDelete: () -> Unit) {
+private fun FeedRow(
+    feed: Feed,
+    onEdit: () -> Unit,
+    onToggle: () -> Unit,
+    onToggleMute: () -> Unit,
+    onDelete: () -> Unit,
+) {
     Row(
         Modifier.fillMaxWidth()
             .clickable(onClick = onEdit)
@@ -452,6 +463,16 @@ private fun FeedRow(feed: Feed, onEdit: () -> Unit, onToggle: () -> Unit, onDele
                     overflow = TextOverflow.Ellipsis,
                 )
             }
+        }
+        // Muting silences a source's keyword alerts but keeps it fetched and its matches
+        // pinned: for a source worth reading but too chatty to buzz the phone.
+        IconButton(onClick = onToggleMute) {
+            Icon(
+                if (feed.muted) Icons.Outlined.NotificationsOff else Icons.Outlined.Notifications,
+                contentDescription = if (feed.muted) "Unmute alerts from this source" else "Mute alerts from this source",
+                modifier = Modifier.size(20.dp),
+                tint = if (feed.muted) nd.ink else nd.faint,
+            )
         }
         NdSwitch(checked = feed.enabled, onCheckedChange = { onToggle() })
         Spacer(Modifier.width(4.dp))

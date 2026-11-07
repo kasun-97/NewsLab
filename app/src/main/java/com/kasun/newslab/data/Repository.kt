@@ -7,6 +7,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withLock
@@ -22,6 +23,7 @@ import java.io.InterruptedIOException
 import java.net.ConnectException
 import java.net.SocketTimeoutException
 import java.net.UnknownHostException
+import java.time.LocalTime
 import java.util.concurrent.TimeUnit
 import javax.net.ssl.SSLException
 import kotlin.math.min
@@ -242,14 +244,39 @@ class Repository(private val context: Context) {
             dao.pruneOrphanContent()
 
             // Driven by the alertNotified flag rather than this pass's inserts, so an alert
-            // left pending (by a pass that died before this point, say) is still posted.
-            // A pass that doesn't notify (an in-app refresh, or notifications switched
-            // off) still marks what it found, as before: those matches were never going
-            // to alert, and must not surface later as a burst of stale notifications.
+            // left pending (by a pass that died before this point, or held through quiet
+            // hours) is still posted. A pass that doesn't notify (an in-app refresh, or
+            // notifications switched off) still marks what it found, as before: those
+            // matches were never going to alert, and must not surface later as a burst of
+            // stale notifications.
             val pending = dao.unnotifiedAlerts()
             if (pending.isNotEmpty()) {
-                if (notify) Notifier.notifyMatches(context, pending)
-                pending.map { it.id }.chunked(500).forEach { dao.markAlertsNotified(it) }
+                val prefs = Prefs.get(context)
+                // Inside quiet hours nothing is posted and nothing is marked, not even
+                // alerts that will never notify: the first pass after the window judges
+                // the whole batch afresh, under the rules and mutes of that moment.
+                val held = notify && prefs.quietHoursEnabled.first() && LocalTime.now().let {
+                    AlertPolicy.inQuietHours(
+                        it.hour * 60 + it.minute,
+                        prefs.quietHoursStartMinutes.first(),
+                        prefs.quietHoursEndMinutes.first(),
+                    )
+                }
+                if (notify && !held) {
+                    // Every source, not just the enabled ones fetched above: a match held
+                    // overnight may belong to a source switched off since, and its mute
+                    // still counts.
+                    val plan = AlertPolicy.plan(pending, rules, dao.feeds().first())
+                    when {
+                        plan.post.isEmpty() -> Unit
+                        AlertPolicy.useDigest(prefs.digestNotifications.first(), plan.post.size) ->
+                            Notifier.notifyDigest(context, plan.post)
+                        else -> Notifier.notifyMatches(context, plan.post)
+                    }
+                }
+                // Suppressed alerts are marked along with posted ones, so a muted
+                // source's matches don't sit pending forever.
+                if (!held) pending.map { it.id }.chunked(500).forEach { dao.markAlertsNotified(it) }
             }
             // Stamped for every completed pass, not just ones that found new
             // articles — this is what Settings' "last refreshed" reflects, so a

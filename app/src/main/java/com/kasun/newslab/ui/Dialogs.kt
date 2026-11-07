@@ -27,6 +27,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -319,11 +320,13 @@ fun RuleDialog(
     title: String = "Add keyword rule",
     initialLabel: String = "",
     initialQuery: String = "",
+    initialNotify: Boolean = true,
     onDismiss: () -> Unit,
-    onConfirm: (label: String, query: String) -> Unit,
+    onConfirm: (label: String, query: String, notify: Boolean) -> Unit,
 ) {
     var query by rememberSaveable { mutableStateOf(initialQuery) }
     var label by rememberSaveable { mutableStateOf(initialLabel) }
+    var notify by rememberSaveable { mutableStateOf(initialNotify) }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(title) },
@@ -351,10 +354,22 @@ fun RuleDialog(
                     label = { Text("Label (optional)") },
                     singleLine = true,
                 )
+                Spacer(Modifier.height(10.dp))
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Notify", fontWeight = FontWeight.SemiBold)
+                        Text(
+                            "When off, matches are still pinned and listed in Alerts, without a notification.",
+                            fontSize = 12.sp,
+                        )
+                    }
+                    Spacer(Modifier.width(10.dp))
+                    NdSwitch(checked = notify, onCheckedChange = { notify = it })
+                }
             }
         },
         confirmButton = {
-            TextButton(onClick = { onConfirm(label, query) }, enabled = query.isNotBlank()) {
+            TextButton(onClick = { onConfirm(label, query, notify) }, enabled = query.isNotBlank()) {
                 Text(if (initialQuery.isEmpty()) "Add" else "Save")
             }
         },
