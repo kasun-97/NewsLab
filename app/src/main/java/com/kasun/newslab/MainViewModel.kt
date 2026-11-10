@@ -586,21 +586,6 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     // ---- Keyword rules ----
 
-    fun addRule(label: String, query: String) = viewModelScope.launch {
-        val q = query.trim()
-        if (q.isEmpty()) return@launch
-        dao.insertRule(KeywordRule(label = label.trim().ifEmpty { q }, query = q))
-        repo.reclassifyAll()
-        _messages.emit("Keyword rule added")
-    }
-
-    fun updateRule(rule: KeywordRule, label: String, query: String) = viewModelScope.launch {
-        val q = query.trim()
-        if (q.isEmpty()) return@launch
-        dao.updateRule(rule.copy(label = label.trim().ifEmpty { q }, query = q))
-        repo.reclassifyAll()
-    }
-
     fun toggleRule(rule: KeywordRule) = viewModelScope.launch {
         dao.updateRule(rule.copy(enabled = !rule.enabled))
         repo.reclassifyAll()
@@ -614,18 +599,28 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     // The rule dialog's Notify switch arrives with the rest of the form, so it's saved in
     // the same write as the label and query rather than as a separate toggle that could
     // race it.
-    fun addRule(label: String, query: String, notify: Boolean) = viewModelScope.launch {
+    fun addRule(label: String, query: String, notify: Boolean, wholeWords: Boolean) = viewModelScope.launch {
         val q = query.trim()
         if (q.isEmpty()) return@launch
-        dao.insertRule(KeywordRule(label = label.trim().ifEmpty { q }, query = q, notify = notify))
+        dao.insertRule(
+            KeywordRule(label = label.trim().ifEmpty { q }, query = q, notify = notify, wholeWords = wholeWords)
+        )
         repo.reclassifyAll()
         _messages.emit("Keyword rule added")
     }
 
-    fun updateRule(rule: KeywordRule, label: String, query: String, notify: Boolean) = viewModelScope.launch {
+    fun updateRule(
+        rule: KeywordRule,
+        label: String,
+        query: String,
+        notify: Boolean,
+        wholeWords: Boolean,
+    ) = viewModelScope.launch {
         val q = query.trim()
         if (q.isEmpty()) return@launch
-        dao.updateRule(rule.copy(label = label.trim().ifEmpty { q }, query = q, notify = notify))
+        dao.updateRule(
+            rule.copy(label = label.trim().ifEmpty { q }, query = q, notify = notify, wholeWords = wholeWords)
+        )
         repo.reclassifyAll()
     }
 

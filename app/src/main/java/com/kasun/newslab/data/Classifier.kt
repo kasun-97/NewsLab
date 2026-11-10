@@ -9,6 +9,10 @@ package com.kasun.newslab.data
  * `-"world cup"`) is an exclusion: the rule fails if it appears. Matching is
  * case-insensitive and substring-based ("rate" also matches "rates"), for
  * exclusions too, so `-rate` also rules out "rates".
+ *
+ * With whole words on, a term must also start at the beginning of a word: "rate"
+ * still matches "rates" and "rated" but no longer "corporate" or "accurate". The
+ * same applies to exclusions and to the first word of a quoted phrase.
  */
 object RuleMatcher {
 
@@ -49,11 +53,36 @@ object RuleMatcher {
      * of only exclusions never matches: "everything except X" would pin and notify
      * almost the whole feed, which is never what an alert is for.
      */
-    fun matches(query: String, haystack: String): Boolean {
+    fun matches(query: String, haystack: String, wholeWords: Boolean = false): Boolean {
         val terms = parse(query)
+        val found: (String) -> Boolean =
+            if (wholeWords) { term -> containsAtWordStart(haystack, term) } else { term -> haystack.contains(term) }
         return terms.required.isNotEmpty() &&
-            terms.required.all { haystack.contains(it) } &&
-            terms.excluded.none { haystack.contains(it) }
+            terms.required.all(found) &&
+            terms.excluded.none(found)
+    }
+
+    /**
+     * True when [term] occurs in [haystack] at the start of a word, i.e. not straight
+     * after a letter, digit or combining mark. Marks count as word characters so a
+     * Sinhala or Tamil vowel sign doesn't read as a word break. A term that itself
+     * starts with punctuation (`$oil`, `#cbsl`) has its own boundary and matches anywhere.
+     */
+    internal fun containsAtWordStart(haystack: String, term: String): Boolean {
+        if (term.isEmpty()) return false
+        if (!isWordChar(term[0])) return haystack.contains(term)
+        var from = 0
+        while (true) {
+            val at = haystack.indexOf(term, from)
+            if (at < 0) return false
+            if (at == 0 || !isWordChar(haystack[at - 1])) return true
+            from = at + 1
+        }
+    }
+
+    private fun isWordChar(c: Char): Boolean = c.isLetterOrDigit() || when (Character.getType(c).toByte()) {
+        Character.NON_SPACING_MARK, Character.COMBINING_SPACING_MARK, Character.ENCLOSING_MARK -> true
+        else -> false
     }
 }
 
@@ -102,7 +131,7 @@ object Classifier {
             (name.length >= 3 && haystack.contains(name)) || terms.any { haystack.contains(it) }
         }.map { it.id }
 
-        val hits = rules.filter { it.enabled && RuleMatcher.matches(it.query, haystack) }
+        val hits = rules.filter { it.enabled && RuleMatcher.matches(it.query, haystack, it.wholeWords) }
 
         return Classification(
             categoryIds = if (categoryIds.isEmpty()) ""

@@ -76,6 +76,13 @@ data class KeywordRule(
     /** False keeps pinning this rule's matches but never notifies about them. */
     @ColumnInfo(defaultValue = "1")
     val notify: Boolean = true,
+    /**
+     * Terms must start at a word boundary ("rate" matches "rates", not "corporate").
+     * On for rules made from 1.4; the SQL default of 0 is what the 17->18 migration
+     * backfills, so rules from before keep their old substring matching.
+     */
+    @ColumnInfo(defaultValue = "0")
+    val wholeWords: Boolean = true,
 )
 
 /**

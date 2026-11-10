@@ -142,7 +142,9 @@ fun KeywordRulesScreen(vm: MainViewModel, onBack: () -> Unit, listState: LazyLis
                         "in any order. Wrap words in \"quotes\" to require an exact phrase. " +
                         "Put - in front of a word or phrase (-imf, -\"world cup\") to skip " +
                         "articles that mention it. " +
-                        "Matching is case-insensitive. Matches are pinned to the top of your inbox " +
+                        "Matching is case-insensitive. With Whole words on, each word must " +
+                        "start a word in the article: rate finds rates but not corporate. " +
+                        "Matches are pinned to the top of your inbox " +
                         "and shown in the Alerts tab.",
                     Modifier.padding(18.dp),
                     fontSize = 12.sp,
@@ -156,8 +158,8 @@ fun KeywordRulesScreen(vm: MainViewModel, onBack: () -> Unit, listState: LazyLis
     if (showAddRule) {
         RuleDialog(
             onDismiss = { showAddRule = false },
-            onConfirm = { label, query, notify ->
-                vm.addRule(label, query, notify)
+            onConfirm = { label, query, notify, wholeWords ->
+                vm.addRule(label, query, notify, wholeWords)
                 showAddRule = false
             },
         )
@@ -168,9 +170,10 @@ fun KeywordRulesScreen(vm: MainViewModel, onBack: () -> Unit, listState: LazyLis
             initialLabel = rule.label,
             initialQuery = rule.query,
             initialNotify = rule.notify,
+            initialWholeWords = rule.wholeWords,
             onDismiss = { editRuleId = null },
-            onConfirm = { label, query, notify ->
-                vm.updateRule(rule, label, query, notify)
+            onConfirm = { label, query, notify, wholeWords ->
+                vm.updateRule(rule, label, query, notify, wholeWords)
                 editRuleId = null
             },
         )

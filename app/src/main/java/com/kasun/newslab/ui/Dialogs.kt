@@ -321,12 +321,14 @@ fun RuleDialog(
     initialLabel: String = "",
     initialQuery: String = "",
     initialNotify: Boolean = true,
+    initialWholeWords: Boolean = true,
     onDismiss: () -> Unit,
-    onConfirm: (label: String, query: String, notify: Boolean) -> Unit,
+    onConfirm: (label: String, query: String, notify: Boolean, wholeWords: Boolean) -> Unit,
 ) {
     var query by rememberSaveable { mutableStateOf(initialQuery) }
     var label by rememberSaveable { mutableStateOf(initialLabel) }
     var notify by rememberSaveable { mutableStateOf(initialNotify) }
+    var wholeWords by rememberSaveable { mutableStateOf(initialWholeWords) }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(title) },
@@ -357,6 +359,18 @@ fun RuleDialog(
                 Spacer(Modifier.height(10.dp))
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
+                        Text("Whole words", fontWeight = FontWeight.SemiBold)
+                        Text(
+                            "Each word must start a word in the article: rate finds rates, not corporate.",
+                            fontSize = 12.sp,
+                        )
+                    }
+                    Spacer(Modifier.width(10.dp))
+                    NdSwitch(checked = wholeWords, onCheckedChange = { wholeWords = it })
+                }
+                Spacer(Modifier.height(10.dp))
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
                         Text("Notify", fontWeight = FontWeight.SemiBold)
                         Text(
                             "When off, matches are still pinned and listed in Alerts, without a notification.",
@@ -369,7 +383,7 @@ fun RuleDialog(
             }
         },
         confirmButton = {
-            TextButton(onClick = { onConfirm(label, query, notify) }, enabled = query.isNotBlank()) {
+            TextButton(onClick = { onConfirm(label, query, notify, wholeWords) }, enabled = query.isNotBlank()) {
                 Text(if (initialQuery.isEmpty()) "Add" else "Save")
             }
         },

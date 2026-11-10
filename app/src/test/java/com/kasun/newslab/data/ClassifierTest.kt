@@ -44,6 +44,45 @@ class RuleMatcherTest {
     }
 
     @Test
+    fun substringModeStillMatchesInsideWords() {
+        assertTrue(RuleMatcher.matches("rate", "corporate earnings beat"))
+    }
+
+    @Test
+    fun wholeWordsRequiresAWordStartButAllowsSuffixes() {
+        assertTrue(RuleMatcher.matches("rate", "policy rates held", wholeWords = true))
+        assertTrue(RuleMatcher.matches("rate", "rate cut", wholeWords = true))
+        assertTrue(RuleMatcher.matches("rate", "the (rate) moved", wholeWords = true))
+        assertFalse(RuleMatcher.matches("rate", "corporate earnings beat", wholeWords = true))
+        // A later occurrence at a word start still counts after an inner one.
+        assertTrue(RuleMatcher.matches("rate", "corporate rate outlook", wholeWords = true))
+        assertTrue(RuleMatcher.matches("imf", "imf-backed reforms", wholeWords = true))
+    }
+
+    @Test
+    fun wholeWordsAppliesToPhrasesAndExclusions() {
+        assertTrue(RuleMatcher.matches("\"interest rate\"", "interest rates rise", wholeWords = true))
+        assertFalse(RuleMatcher.matches("\"rest rate\"", "interest rates rise", wholeWords = true))
+        // -rate no longer rules out "corporate", but still rules out "rates".
+        assertTrue(RuleMatcher.matches("bank -rate", "bank lifts corporate lending", wholeWords = true))
+        assertFalse(RuleMatcher.matches("bank -rate", "bank holds rates", wholeWords = true))
+    }
+
+    @Test
+    fun wholeWordsTermStartingWithPunctuationMatchesAnywhere() {
+        assertTrue(RuleMatcher.matches("#cbsl", "news#cbsl update", wholeWords = true))
+    }
+
+    @Test
+    fun wholeWordsTreatsCombiningMarksAsPartOfAWord() {
+        // "මු" is a Sinhala letter plus vowel sign; the term after it is mid-word.
+        val haystack = "මුදල"
+        assertTrue(RuleMatcher.matches("දල", haystack))
+        assertFalse(RuleMatcher.matches("දල", haystack, wholeWords = true))
+        assertTrue(RuleMatcher.matches("දල", "x දල", wholeWords = true))
+    }
+
+    @Test
     fun quotedPhraseMustBeContiguous() {
         assertTrue(RuleMatcher.matches("\"interest rates\"", "interest rates rise again"))
         assertFalse(RuleMatcher.matches("\"interest rates\"", "rates of interest rise"))
@@ -167,6 +206,16 @@ class ClassifierTest {
         assertEquals(",2,4,", c.ruleIds)
         assertEquals("IMF" + Classifier.LABEL_SEPARATOR + "Rates", c.ruleLabels)
         assertEquals(listOf("IMF", "Rates"), Classifier.splitLabels(c.ruleLabels))
+    }
+
+    @Test
+    fun ruleWholeWordsFlagIsHonoured() {
+        val rules = listOf(
+            KeywordRule(id = 2, label = "Rate", query = "rate", wholeWords = true),
+            KeywordRule(id = 4, label = "Rate (any)", query = "rate", wholeWords = false),
+        )
+        assertEquals(",4,", classify("Corporate profits climb", rules = rules).ruleIds)
+        assertEquals(",2,4,", classify("Rates on hold", rules = rules).ruleIds)
     }
 
     @Test

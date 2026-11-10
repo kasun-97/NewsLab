@@ -40,7 +40,7 @@ class AppDbMigrationTest {
         // validateDroppedTables is off because it rejects any table Room has no entity for,
         // and the full-text index is deliberately raw SQL. The same check is made below
         // with that index and its FTS4 shadow tables allowed.
-        val db = helper.runMigrationsAndValidate(name, 17, false, *AppDb.ALL_MIGRATIONS)
+        val db = helper.runMigrationsAndValidate(name, 18, false, *AppDb.ALL_MIGRATIONS)
 
         // Seeded v1 rows survive, with the columns added since then at their defaults.
         db.query("SELECT name, url, color, enabled, isAtom, etag, lastModified, lastFetchedAt, lastError, lastErrorAt, muted FROM feeds WHERE id = 7").use {
@@ -59,7 +59,7 @@ class AppDbMigrationTest {
             assertEquals(0, it.getInt(10))
         }
         assertEquals(1L, scalar(db, "SELECT COUNT(*) FROM categories WHERE name = 'Economy' AND keywords = 'gdp,imf' AND position = 0"))
-        assertEquals(1L, scalar(db, "SELECT COUNT(*) FROM keyword_rules WHERE label = 'IMF' AND query = 'imf' AND enabled = 1 AND notify = 1"))
+        assertEquals(1L, scalar(db, "SELECT COUNT(*) FROM keyword_rules WHERE label = 'IMF' AND query = 'imf' AND enabled = 1 AND notify = 1 AND wholeWords = 0"))
         // An existing match counts as already notified, so the upgrade can't re-fire it.
         db.query("SELECT feedId, title, imageUrl, pageImageUrl, isRead, isSaved, alertNotified FROM articles WHERE id = 'a1'").use {
             assertEquals(1, it.count)
@@ -107,6 +107,8 @@ class AppDbMigrationTest {
         try {
             val db = AppDb.get(context).openHelper.writableDatabase
             assertContentFtsInstalled(db)
+            // Seeded example rules are new rules, so they get whole-word matching.
+            assertEquals(2L, scalar(db, "SELECT COUNT(*) FROM keyword_rules WHERE wholeWords = 1"))
 
             // The body cache writes with INSERT OR REPLACE (Room's REPLACE strategy).
             db.execSQL("INSERT OR REPLACE INTO article_content (id, text, fetchedAt) VALUES ('a', 'central bank holds rates', 1)")
@@ -137,7 +139,7 @@ class AppDbMigrationTest {
     @Test
     fun freshInstallSchemaIsSelfConsistent() {
         // Runs the exported schema's own CREATE statements; throws if the JSON is missing or bad.
-        val db = helper.createDatabase("fresh-v17.db", 17)
+        val db = helper.createDatabase("fresh-v18.db", 18)
         for (table in listOf(
             "feeds", "categories", "keyword_rules", "articles", "feed_groups",
             "feed_group_members", "article_content", "quick_links", "quick_link_lists",

@@ -14,7 +14,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         ArticleContent::class, QuickLink::class,
         QuickLinkList::class,
     ],
-    version = 17,
+    version = 18,
     exportSchema = true,
 )
 abstract class AppDb : RoomDatabase() {
@@ -259,12 +259,22 @@ abstract class AppDb : RoomDatabase() {
             }
         }
 
+        /**
+         * Per-rule whole-word matching. Existing rules backfill as 0 so nothing they
+         * already match changes under the user; new rules are created with it on.
+         */
+        private val MIGRATION_17_18 = object : Migration(17, 18) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE keyword_rules ADD COLUMN wholeWords INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
         /** Every migration in order; [get] registers these, and the migration test runs them. */
         internal val ALL_MIGRATIONS: Array<Migration> = arrayOf(
             MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6,
             MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10,
             MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14,
-            MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17,
+            MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18,
         )
 
         fun get(context: Context): AppDb = instance ?: synchronized(this) {
@@ -300,9 +310,9 @@ abstract class AppDb : RoomDatabase() {
                     "('Politics', 'president,parliament,minister,election,cabinet,government,opposition,party,npp,sjb,slpp,gazette,policy', 2)"
             )
             db.execSQL(
-                "INSERT INTO keyword_rules (label, query, enabled) VALUES " +
-                    "('IMF', 'imf', 1), " +
-                    "('Interest rates', 'interest rate', 1)"
+                "INSERT INTO keyword_rules (label, query, enabled, wholeWords) VALUES " +
+                    "('IMF', 'imf', 1, 1), " +
+                    "('Interest rates', 'interest rate', 1, 1)"
             )
             // The empty Default list is seeded, but no links go in it — the country hubs
             // that used to ship here are one reader's bookmarks, not a sensible default
