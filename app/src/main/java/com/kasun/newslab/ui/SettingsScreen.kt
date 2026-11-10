@@ -428,6 +428,27 @@ fun SettingsScreen(
             }
             NdSwitch(checked = prefetchAlertBodies, onCheckedChange = { vm.setPrefetchAlertBodies(it) })
         }
+        val muteWords by vm.muteWords.collectAsState()
+        var showMuteWords by remember { mutableStateOf(false) }
+        SettingsNavRow(
+            title = "Mute words",
+            subtitle = if (muteWords.isBlank()) {
+                "Hide articles that mention these words from the inbox timeline. None set."
+            } else {
+                "Hidden from the timeline: $muteWords"
+            },
+            onClick = { showMuteWords = true },
+        )
+        if (showMuteWords) {
+            MuteWordsDialog(
+                initialWords = muteWords,
+                onDismiss = { showMuteWords = false },
+                onConfirm = {
+                    vm.setMuteWords(it)
+                    showMuteWords = false
+                },
+            )
+        }
 
         SectionLabel("IMAGES", nd.muted)
         Row(

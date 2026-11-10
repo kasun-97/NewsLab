@@ -24,6 +24,7 @@ import com.kasun.newslab.data.KeywordRule
 import com.kasun.newslab.data.OpmlManager
 import com.kasun.newslab.data.PopularFeed
 import com.kasun.newslab.data.Palette
+import com.kasun.newslab.data.MuteFilter
 import com.kasun.newslab.data.Prefs
 import com.kasun.newslab.data.QuickLink
 import com.kasun.newslab.data.QuickLinkList
@@ -98,15 +99,24 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     val quietHoursStartMinutes = prefs.quietHoursStartMinutes.state(Prefs.DEFAULT_QUIET_START_MINUTES)
     val quietHoursEndMinutes = prefs.quietHoursEndMinutes.state(Prefs.DEFAULT_QUIET_END_MINUTES)
     val prefetchAlertBodies = prefs.prefetchAlertBodies.state(true)
+    val muteWords = prefs.muteWords.state("")
 
-    // Articles from disabled sources are hidden, except ones the user saved.
+    // Articles from disabled sources are hidden, except ones the user saved. So are
+    // articles mentioning a mute word, except saved ones and keyword-alert matches.
     //
     // flowOn matters here: viewModelScope is Main.immediate, and Room only moves the
     // *query* off-thread — this transform would otherwise filter hundreds of articles
     // on the UI thread every time the table changes, which during a refresh is often.
-    private val visibleArticles = combine(dao.articles(), feeds) { all, currentFeeds ->
+    private val visibleArticles = combine(dao.articles(), feeds, prefs.muteWords) { all, currentFeeds, muted ->
         val disabledIds = currentFeeds.filterNot { it.enabled }.mapTo(HashSet()) { it.id }
-        if (disabledIds.isEmpty()) all else all.filter { it.isSaved || it.feedId !in disabledIds }
+        val muteTerms = MuteFilter.parse(muted)
+        if (disabledIds.isEmpty() && muteTerms.isEmpty()) {
+            all
+        } else {
+            all.filter {
+                (it.isSaved || it.feedId !in disabledIds) && !MuteFilter.isMuted(it, muteTerms)
+            }
+        }
     }.flowOn(Dispatchers.Default)
 
     // unread derives from the hot `articles` StateFlow, not the cold upstream —
@@ -721,6 +731,14 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     fun setPrefetchAlertBodies(enabled: Boolean) = viewModelScope.launch {
         prefs.setPrefetchAlertBodies(enabled)
+    }
+
+    /** Stores the list tidied: trimmed terms, blanks and repeats dropped. */
+    fun setMuteWords(words: String) = viewModelScope.launch {
+        val tidy = words.split(',').map { it.trim() }.filter { it.isNotEmpty() }
+            .distinctBy { it.lowercase() }
+            .joinToString(", ")
+        prefs.setMuteWords(tidy)
     }
 
     /** Finishes the first-run intro: adds the chosen feeds and records the section choices. */

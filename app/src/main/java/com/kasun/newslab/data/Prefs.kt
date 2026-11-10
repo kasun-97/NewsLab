@@ -55,6 +55,7 @@ class Prefs private constructor(private val context: Context) {
         private val QUIET_HOURS_START = intPreferencesKey("quiet_hours_start")
         private val QUIET_HOURS_END = intPreferencesKey("quiet_hours_end")
         private val PREFETCH_ALERT_BODIES = booleanPreferencesKey("prefetch_alert_bodies")
+        private val MUTE_WORDS = stringPreferencesKey("mute_words")
 
         const val DEFAULT_REFRESH_MINUTES = 15L
 
@@ -241,5 +242,13 @@ class Prefs private constructor(private val context: Context) {
 
     suspend fun setPrefetchAlertBodies(enabled: Boolean) {
         context.dataStore.edit { it[PREFETCH_ALERT_BODIES] = enabled }
+    }
+
+    /** Comma-separated terms that keep an article out of the timeline; see [MuteFilter]. */
+    val muteWords: Flow<String> =
+        context.dataStore.data.map { it[MUTE_WORDS] ?: "" }
+
+    suspend fun setMuteWords(words: String) {
+        context.dataStore.edit { it[MUTE_WORDS] = words }
     }
 }

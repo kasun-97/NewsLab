@@ -392,6 +392,40 @@ fun RuleDialog(
 }
 
 @Composable
+fun MuteWordsDialog(
+    initialWords: String,
+    onDismiss: () -> Unit,
+    onConfirm: (words: String) -> Unit,
+) {
+    var words by rememberSaveable { mutableStateOf(initialWords) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Mute words") },
+        text = {
+            Column {
+                OutlinedTextField(
+                    value = words,
+                    onValueChange = { words = it },
+                    label = { Text("Words or phrases (comma-separated)") },
+                    placeholder = { Text("cricket, celebrity, world cup") },
+                    minLines = 2,
+                )
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    "Articles that mention any of these are hidden from the inbox timeline. " +
+                        "Each must start a word: sport hides sports, not transport. " +
+                        "Saved articles and keyword-alert matches are never hidden.",
+                    fontSize = 12.sp,
+                )
+            }
+        },
+        // Saving an empty field is how the list is cleared, so Save is always enabled.
+        confirmButton = { TextButton(onClick = { onConfirm(words) }) { Text("Save") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
+}
+
+@Composable
 fun ConfirmDialog(
     title: String,
     body: String,
