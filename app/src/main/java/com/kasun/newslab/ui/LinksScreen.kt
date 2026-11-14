@@ -404,10 +404,14 @@ private fun linkHost(url: String): String =
     url.removePrefix("https://").removePrefix("http://").removePrefix("www.").substringBefore('/')
 
 /**
- * Favicon for a link's site. Sites serve their own /favicon.ico as real ICO, which
- * Android can't decode, so this goes through Google's favicon endpoint (PNG) — the
- * one lookup in the app that leaves the device for something other than a feed. It
- * only runs when images are enabled, and a letter tile shows if it fails.
+ * Icon for a link's site, asked of the site itself. Its /favicon.ico is usually real
+ * ICO, which Android can't decode, so this asks for the PNG touch icon most sites also
+ * publish. It used to go through Google's favicon service, which told Google every
+ * site saved here. It only runs when images are enabled, and the letter tile shows
+ * through for a site that has no such icon.
  */
-private fun faviconUrl(url: String): String =
-    "https://www.google.com/s2/favicons?domain=${linkHost(url)}&sz=64"
+private fun faviconUrl(url: String): String {
+    val host = url.removePrefix("https://").removePrefix("http://")
+        .substringBefore('/').substringBefore('?').substringBefore('#')
+    return "https://$host/apple-touch-icon.png"
+}

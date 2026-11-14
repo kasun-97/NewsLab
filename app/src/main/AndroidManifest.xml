@@ -12,9 +12,14 @@
       and can open the system screen, neither of which needs the permission.
     -->
 
+    <!--
+      allowBackup is off so Android's cloud backup never uploads the database or the
+      settings to the device's Google account: everything stays on the phone unless the
+      reader exports a backup themselves (Settings > Backup).
+    -->
     <application
         android:name=".NewsLabApp"
-        android:allowBackup="true"
+        android:allowBackup="false"
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:label="@string/app_name"

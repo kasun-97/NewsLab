@@ -8,8 +8,9 @@ A priority-inbox RSS reader for Android, written in Kotlin with Jetpack Compose.
 Articles that match your keyword rules are pinned to the top of the inbox; everything
 else flows into a day-grouped timeline where the same story from several outlets
 collapses into one card. Everything stays on the phone: there is no account, no
-server and no analytics. The app talks only to the feeds you add, the article pages
-you open and the images they reference.
+server and no analytics, and Android's cloud backup is switched off for it. The app
+talks only to the feeds you add, the article pages you open, the images they reference
+and the sites you save to Links (for their icon).
 
 <p align="center">
   <img src="docs/screenshots/inbox-light.jpg" width="200" alt="Inbox, light theme: keyword alerts pinned above the day timeline">
