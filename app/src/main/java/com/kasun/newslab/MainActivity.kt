@@ -81,7 +81,10 @@ class MainActivity : ComponentActivity() {
                 )
             }
         }
-        if (Build.VERSION.SDK_INT >= 33 &&
+        // Once per launch, not per recreation: asked again on every rotation, a second
+        // dismissal counts as "don't ask again" and the system stops offering the prompt.
+        if (savedInstanceState == null &&
+            Build.VERSION.SDK_INT >= 33 &&
             ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) !=
             PackageManager.PERMISSION_GRANTED
         ) {
