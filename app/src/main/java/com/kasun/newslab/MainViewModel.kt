@@ -195,8 +195,25 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 // Without this, one refresh exception would leave the flag stuck
                 // true and permanently dead-end the refresh button.
                 refreshing = false
+                if (refreshAgain) {
+                    refreshAgain = false
+                    refresh()
+                }
             }
         }
+    }
+
+    /** Set when the source list changed under a running pass; that pass is followed by another. */
+    private var refreshAgain = false
+
+    /**
+     * A refresh for sources just added or pointed at a new address. Unlike [refresh] it
+     * isn't dropped when a pass is already running: that pass read its source list
+     * before the change, so the new source would sit empty (or a repaired one stay
+     * listed as failing) until the next scheduled check.
+     */
+    private fun refreshForChangedSources() {
+        if (refreshing) refreshAgain = true else refresh()
     }
 
     private fun refreshMessage(result: Repository.RefreshResult): String {
@@ -287,7 +304,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
         val id = dao.insertFeed(Feed(name = display, url = cleanUrl, color = Palette.next(feeds.value.size)))
         if (groupIds.isNotEmpty()) dao.setFeedGroups(id, groupIds)
-        refresh()
+        refreshForChangedSources()
     }
 
     fun toggleFeed(feed: Feed) = viewModelScope.launch {
@@ -348,7 +365,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
      */
     fun replaceFeedUrl(feed: Feed, url: String, groupIds: Set<Long>) = viewModelScope.launch {
         updateFeed(feed, feed.name, url, groupIds).join()
-        refresh()
+        refreshForChangedSources()
     }
 
     // ---- OPML ----
@@ -437,7 +454,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             if (groupIds.isNotEmpty()) dao.setFeedGroups(feedId, groupIds)
         }
 
-        if (added > 0) refresh()
+        if (added > 0) refreshForChangedSources()
         _messages.emit(opmlImportSummary(added, skipped, groupsCreated))
     }
 
@@ -758,7 +775,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                     ?: dao.insertFeedGroup(FeedGroup(name = feed.group)).also { groupIdByName[feed.group.lowercase()] = it }
                 dao.setFeedGroups(feedId, setOf(groupId))
             }
-            refresh()
+            refreshForChangedSources()
         }
         prefs.setOnboardingComplete()
     }
