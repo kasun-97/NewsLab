@@ -68,11 +68,35 @@ object ArticleExtractor {
         }
     }
 
-    private fun extractReadable(doc: Document): String? {
+    /**
+     * True when one of [element]'s class names marks it as page furniture. Each name is
+     * judged on its own, and the ones that describe the page or the post rather than the
+     * element's role are skipped: WordPress puts `tag-<slug>` and `category-<slug>` on
+     * the article itself and `has-sidebar` / `no-sidebar` / `has-header-image` on
+     * `<body>`, and matching those threw the whole article away.
+     */
+    private fun hasBoilerplateClass(element: Element): Boolean =
+        element.classNames().any { name ->
+            val lower = name.lowercase()
+            DESCRIPTIVE_CLASS_PREFIXES.none { lower.startsWith(it) } && BOILERPLATE_CLASS.containsMatchIn(lower)
+        }
+
+    internal fun extractReadable(doc: Document): String? {
         // Strip the obvious non-content first so it can't win the scoring.
         doc.select("script, style, noscript, iframe, svg, form, button, input, textarea, nav, aside, header, footer, figure figcaption").remove()
-        doc.select("[class~=(?i)(^|[-_ ])(comment|share|social|related|promo|advert|ad|ads|sponsor|newsletter|subscribe|sidebar|footer|header|nav|menu|breadcrumb|byline|author-bio|cookie|popup|modal|paywall|widget|recommend|trending|tags?)($|[-_ ])]").remove()
-        doc.select("[id~=(?i)(comment|share|social|related|promo|advert|sidebar|footer|nav|menu|newsletter|subscribe|cookie|popup|paywall|recommend|trending)]").remove()
+        // Whatever holds most of the page's prose is the page, not furniture, however it
+        // is named: a wrapper called "content-sidebar-wrap" or "page-header-layout" would
+        // otherwise take the article out with it.
+        val proseChars = doc.select("p").sumOf { it.text().length }
+        fun holdsThePage(element: Element): Boolean =
+            element.tagName() == "html" || element.tagName() == "body" ||
+                (proseChars > 0 && element.select("p").sumOf { it.text().length } * 2 > proseChars)
+        (
+            doc.select("[class]").filter(::hasBoilerplateClass) +
+                doc.select("[id~=(?i)(comment|share|social|related|promo|advert|sidebar|footer|nav|menu|newsletter|subscribe|cookie|popup|paywall|recommend|trending)]")
+            )
+            .filterNot(::holdsThePage)
+            .forEach { it.remove() }
 
         val root = doc.selectFirst("article")
             ?: doc.selectFirst("[role=main]")
@@ -148,4 +172,13 @@ object ArticleExtractor {
     private const val MAX_LINK_DENSITY = 0.5
     private val HTML_SUBTYPES = setOf("html", "xhtml+xml", "xml")
     private val BLOCK_TAGS = setOf("p", "h2", "h3", "h4", "blockquote", "pre", "li")
+
+    /** A boilerplate word standing as a whole part of one class name: "share", "post-share", "ad_slot". */
+    private val BOILERPLATE_CLASS = Regex(
+        "(^|[-_])(comment|share|social|related|promo|advert|ad|ads|sponsor|newsletter|subscribe|sidebar|footer|" +
+            "header|nav|menu|breadcrumb|byline|author-bio|cookie|popup|modal|paywall|widget|recommend|trending|tags?)($|[-_])",
+    )
+
+    /** Class names that describe the post or the page ("tag-imf", "has-sidebar"), not what the element is. */
+    private val DESCRIPTIVE_CLASS_PREFIXES = listOf("tag-", "category-", "has-", "no-")
 }
