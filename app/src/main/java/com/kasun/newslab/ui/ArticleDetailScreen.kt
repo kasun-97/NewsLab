@@ -53,6 +53,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -90,8 +91,16 @@ import com.kasun.newslab.ui.theme.sourceHue
 import com.kasun.newslab.ui.theme.toFontFamily
 import kotlinx.coroutines.launch
 
-/** A single find-in-page hit: a character range within the title or the summary. */
-private data class FindMatch(val inTitle: Boolean, val start: Int, val end: Int)
+/**
+ * A single find-in-page hit: a character range within one on-screen text block —
+ * [BLOCK_TITLE], [BLOCK_SUMMARY], or body paragraph i as [BLOCK_BODY] + i. Blocks are
+ * numbered in reading order, so matches sorted by (block, start) step down the page.
+ */
+private data class FindMatch(val block: Int, val start: Int, val end: Int)
+
+private const val BLOCK_TITLE = 0
+private const val BLOCK_SUMMARY = 1
+private const val BLOCK_BODY = 2
 
 /** In-app reader for a single article, fetched from the feed's own RSS data. */
 @OptIn(ExperimentalFoundationApi::class)
@@ -149,50 +158,84 @@ fun ArticleDetailScreen(vm: MainViewModel, article: Article, onBack: () -> Unit)
     var findQuery by rememberSaveable(article.id) { mutableStateOf("") }
     var currentMatch by rememberSaveable(article.id) { mutableStateOf(0) }
     val findFocus = remember { FocusRequester() }
-    val titleRequester = remember { BringIntoViewRequester() }
-    val summaryRequester = remember { BringIntoViewRequester() }
-    var titleLayout by remember { mutableStateOf<TextLayoutResult?>(null) }
-    var summaryLayout by remember { mutableStateOf<TextLayoutResult?>(null) }
+    // One requester and latest layout per text block, so a match in any of them can be
+    // scrolled to. Layouts are snapshot state so the scroll effect reruns on fresh ones.
+    val blockRequesters = remember { mutableMapOf<Int, BringIntoViewRequester>() }
+    val blockLayouts = remember { mutableStateMapOf<Int, TextLayoutResult>() }
+    fun requesterFor(block: Int) = blockRequesters.getOrPut(block) { BringIntoViewRequester() }
 
     val summaryText = article.summary.ifBlank { "No summary provided by this feed." }
-    val matches = remember(article.title, article.summary, findQuery) {
+    // Split once per body and used for both scanning and rendering, so a match's
+    // paragraph index always names the paragraph that's actually drawn.
+    val bodyParagraphs = remember(fullText) { fullText?.split("\n\n").orEmpty() }
+    val bodyShown = textStatus == FullTextStatus.LOADED && fullText != null
+    fun blockText(block: Int): String? = when (block) {
+        BLOCK_TITLE -> article.title
+        BLOCK_SUMMARY -> summaryText
+        else -> bodyParagraphs.getOrNull(block - BLOCK_BODY)
+    }
+    val matches = remember(article.title, article.summary, bodyParagraphs, bodyShown, findQuery) {
         val q = findQuery.trim()
         if (q.isBlank()) {
             emptyList()
         } else {
             buildList {
-                fun scan(text: String, inTitle: Boolean) {
+                fun scan(text: String, block: Int) {
                     var i = text.indexOf(q, ignoreCase = true)
                     while (i >= 0) {
-                        add(FindMatch(inTitle, i, i + q.length))
+                        add(FindMatch(block, i, i + q.length))
                         i = text.indexOf(q, startIndex = i + q.length, ignoreCase = true)
                     }
                 }
-                scan(article.title, true)
-                scan(article.summary, false)
+                scan(article.title, BLOCK_TITLE)
+                // The summary stays on screen above the body, so it's searched either way.
+                scan(article.summary, BLOCK_SUMMARY)
+                // Only once the body is drawn, so the counter never counts hidden text.
+                if (bodyShown) bodyParagraphs.forEachIndexed { i, p -> scan(p, BLOCK_BODY + i) }
             }
         }
     }
-    // Keep the active index valid as the match set changes under it.
+    // Keep the active index valid as the match set changes under it. currentMatch itself
+    // is left alone: body matches only append after title/summary ones, so the body
+    // loading never shifts the focused match, and an index restored after rotation
+    // (before the cached body is back) comes back once the body reappears.
     val safeMatch = currentMatch.coerceIn(0, (matches.size - 1).coerceAtLeast(0))
+
+    // Each block's run of the (block-grouped) match list, so a block highlights from its
+    // own slice and only rebuilds when its own focus changes — stepping through a long
+    // body then touches two paragraphs, not all of them.
+    val blockRuns = remember(matches) {
+        val runs = mutableMapOf<Int, IntRange>()
+        matches.forEachIndexed { i, m -> runs[m.block] = (runs[m.block]?.first ?: i)..i }
+        runs
+    }
+    fun matchesIn(block: Int) = blockRuns[block]?.let { matches.subList(it.first, it.last + 1) }.orEmpty()
+    fun focusIn(block: Int) = blockRuns[block]?.takeIf { safeMatch in it }?.let { safeMatch - it.first } ?: -1
 
     val findHi = nd.findHighlight
     val findHiActive = nd.findHighlightActive
-    val titleText = remember(article.title, matches, safeMatch, findHi, findHiActive) {
-        buildHighlighted(article.title, matches, inTitle = true, safeMatch, findHi, findHiActive)
+    val titleFocus = focusIn(BLOCK_TITLE)
+    val titleText = remember(article.title, matches, titleFocus, findHi, findHiActive) {
+        buildHighlighted(article.title, matchesIn(BLOCK_TITLE), titleFocus, findHi, findHiActive)
     }
-    val summaryAnnotated = remember(summaryText, matches, safeMatch, findHi, findHiActive) {
-        buildHighlighted(summaryText, matches, inTitle = false, safeMatch, findHi, findHiActive)
+    val summaryFocus = focusIn(BLOCK_SUMMARY)
+    val summaryAnnotated = remember(summaryText, matches, summaryFocus, findHi, findHiActive) {
+        buildHighlighted(summaryText, matchesIn(BLOCK_SUMMARY), summaryFocus, findHi, findHiActive)
     }
 
-    // Scroll the focused match into view whenever it (or the layout) changes.
-    LaunchedEffect(safeMatch, matches, titleLayout, summaryLayout) {
-        val m = matches.getOrNull(safeMatch) ?: return@LaunchedEffect
-        val layout = (if (m.inTitle) titleLayout else summaryLayout) ?: return@LaunchedEffect
-        val requester = if (m.inTitle) titleRequester else summaryRequester
+    // Scroll the focused match into view whenever it (or its block's layout) changes.
+    val focused = matches.getOrNull(safeMatch)
+    val focusedLayout = focused?.let { blockLayouts[it.block] }
+    LaunchedEffect(safeMatch, matches, focusedLayout) {
+        val m = focused ?: return@LaunchedEffect
+        val layout = focusedLayout ?: return@LaunchedEffect
+        // A layout left behind by text that has since changed (a reloaded body, a
+        // paragraph no longer drawn) would aim at the wrong spot; wait for a fresh one.
+        // A query change alone is fine: highlights don't move glyphs.
+        if (layout.layoutInput.text.text != blockText(m.block)) return@LaunchedEffect
         val offset = m.start.coerceIn(0, (layout.layoutInput.text.length - 1).coerceAtLeast(0))
         val box = runCatching { layout.getBoundingBox(offset) }.getOrNull() ?: return@LaunchedEffect
-        runCatching { requester.bringIntoView(box) }
+        runCatching { requesterFor(m.block).bringIntoView(box) }
     }
 
     fun closeFind() {
@@ -347,8 +390,8 @@ fun ArticleDetailScreen(vm: MainViewModel, article: Article, onBack: () -> Unit)
                     Column {
                         Text(
                             titleText,
-                            modifier = Modifier.bringIntoViewRequester(titleRequester),
-                            onTextLayout = { titleLayout = it },
+                            modifier = Modifier.bringIntoViewRequester(requesterFor(BLOCK_TITLE)),
+                            onTextLayout = { blockLayouts[BLOCK_TITLE] = it },
                             fontFamily = readingFont,
                             fontSize = 22.sp,
                             fontWeight = FontWeight.Bold,
@@ -380,8 +423,8 @@ fun ArticleDetailScreen(vm: MainViewModel, article: Article, onBack: () -> Unit)
 
                         Text(
                             summaryAnnotated,
-                            modifier = Modifier.bringIntoViewRequester(summaryRequester),
-                            onTextLayout = { summaryLayout = it },
+                            modifier = Modifier.bringIntoViewRequester(requesterFor(BLOCK_SUMMARY)),
+                            onTextLayout = { blockLayouts[BLOCK_SUMMARY] = it },
                             fontFamily = readingFont,
                             fontSize = 17.sp,
                             color = if (article.summary.isBlank()) nd.faint else nd.ink,
@@ -400,15 +443,22 @@ fun ArticleDetailScreen(vm: MainViewModel, article: Article, onBack: () -> Unit)
                     Spacer(Modifier.width(10.dp))
                     Text("Extracting article…", fontSize = 14.sp, color = nd.muted)
                 }
-                FullTextStatus.LOADED -> fullText?.let { body ->
+                FullTextStatus.LOADED -> if (bodyShown) {
                     HorizontalDivider(color = nd.border, thickness = 1.dp)
                     Spacer(Modifier.height(16.dp))
                     CompositionLocalProvider(LocalTextToolbar provides textToolbar) {
                         SelectionContainer {
                             Column {
-                                body.split("\n\n").forEach { paragraph ->
+                                bodyParagraphs.forEachIndexed { i, paragraph ->
+                                    val block = BLOCK_BODY + i
+                                    val focus = focusIn(block)
+                                    val text = remember(paragraph, matches, focus, findHi, findHiActive) {
+                                        buildHighlighted(paragraph, matchesIn(block), focus, findHi, findHiActive)
+                                    }
                                     Text(
-                                        paragraph,
+                                        text,
+                                        modifier = Modifier.bringIntoViewRequester(requesterFor(block)),
+                                        onTextLayout = { blockLayouts[block] = it },
                                         fontFamily = readingFont,
                                         fontSize = 17.sp,
                                         color = nd.ink,
@@ -497,18 +547,20 @@ private fun ReadFullArticleButton(label: String = "Read full article", onClick: 
     }
 }
 
-/** Plain text with a background span behind each find match; the focused match gets the stronger color. */
+/**
+ * Plain text with a background span behind each of this block's find matches; the
+ * focused one ([currentMatch], an index into [matches], or -1) gets the stronger color.
+ */
 private fun buildHighlighted(
     text: String,
     matches: List<FindMatch>,
-    inTitle: Boolean,
     currentMatch: Int,
     highlight: Color,
     highlightActive: Color,
 ): AnnotatedString = buildAnnotatedString {
     append(text)
     matches.forEachIndexed { i, m ->
-        if (m.inTitle == inTitle && m.end <= text.length) {
+        if (m.end <= text.length) {
             addStyle(SpanStyle(background = if (i == currentMatch) highlightActive else highlight), m.start, m.end)
         }
     }
