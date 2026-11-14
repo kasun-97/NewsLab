@@ -1,6 +1,7 @@
 package com.kasun.newslab
 
 import android.app.Application
+import android.content.Intent
 import android.net.Uri
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -33,6 +34,7 @@ import com.kasun.newslab.data.SavedExporter
 import com.kasun.newslab.data.DesignStyle
 import com.kasun.newslab.data.TextUtil
 import com.kasun.newslab.data.ThemeMode
+import com.kasun.newslab.work.AutoBackupWorker
 import com.kasun.newslab.work.Notifier
 import com.kasun.newslab.work.RefreshWorker
 import kotlinx.coroutines.CancellationException
@@ -100,6 +102,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     val quietHoursEndMinutes = prefs.quietHoursEndMinutes.state(Prefs.DEFAULT_QUIET_END_MINUTES)
     val prefetchAlertBodies = prefs.prefetchAlertBodies.state(true)
     val muteWords = prefs.muteWords.state("")
+    val autoBackupFolder = prefs.autoBackupFolder.state("")
+    val autoBackupLastAt = prefs.autoBackupLastAt.state(0L)
+    val autoBackupLastError = prefs.autoBackupLastError.state("")
 
     // Articles from disabled sources are hidden, except ones the user saved. So are
     // articles mentioning a mute word, except saved ones and keyword-alert matches.
@@ -747,6 +752,39 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     fun setPrefetchAlertBodies(enabled: Boolean) = viewModelScope.launch {
         prefs.setPrefetchAlertBodies(enabled)
+    }
+
+    /**
+     * Switches the weekly automatic backup on, writing into [folder], and makes the
+     * first one now. The access the picker granted lasts only for this session unless
+     * it is taken as persistable; without that, next week's backup would be refused.
+     */
+    fun enableAutoBackup(folder: Uri) = viewModelScope.launch {
+        val app = getApplication<Application>()
+        val access = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+        try {
+            app.contentResolver.takePersistableUriPermission(folder, access)
+        } catch (_: SecurityException) {
+            _messages.emit("That folder can't be used for backups. Choose another.")
+            return@launch
+        }
+        // A folder being replaced no longer needs its grant.
+        releaseBackupFolder(prefs.autoBackupFolder.first(), except = folder)
+        prefs.setAutoBackupFolder(folder.toString())
+        AutoBackupWorker.schedule(app)
+    }
+
+    fun disableAutoBackup() = viewModelScope.launch {
+        AutoBackupWorker.cancel(getApplication())
+        releaseBackupFolder(prefs.autoBackupFolder.first(), except = null)
+        prefs.setAutoBackupFolder("")
+    }
+
+    private fun releaseBackupFolder(folder: String, except: Uri?) {
+        if (folder.isBlank() || folder == except?.toString()) return
+        val access = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+        // Already gone if the reader revoked it or removed the storage; nothing to undo then.
+        runCatching { getApplication<Application>().contentResolver.releasePersistableUriPermission(Uri.parse(folder), access) }
     }
 
     /** Stores the list tidied: trimmed terms, blanks and repeats dropped. */

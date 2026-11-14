@@ -60,10 +60,12 @@ import androidx.lifecycle.LifecycleEventObserver
 import com.kasun.newslab.MainViewModel
 import com.kasun.newslab.data.AlertPolicy
 import com.kasun.newslab.data.AppFont
+import com.kasun.newslab.data.AutoBackup
 import com.kasun.newslab.data.BackupManager
 import com.kasun.newslab.data.DesignStyle
 import com.kasun.newslab.data.FontSize
 import com.kasun.newslab.data.ImportResult
+import com.kasun.newslab.data.TextUtil
 import com.kasun.newslab.data.ThemeMode
 import com.kasun.newslab.ui.theme.nd
 import com.kasun.newslab.ui.theme.toFontFamily
@@ -546,6 +548,33 @@ fun SettingsScreen(
             "Export database + images",
             "Also bundles cached article thumbnails.",
         ) { exportZipLauncher.launch(BackupManager.exportFileName(includeImages = true)) }
+
+        val autoBackupFolder by vm.autoBackupFolder.collectAsState()
+        val autoBackupLastAt by vm.autoBackupLastAt.collectAsState()
+        val autoBackupLastError by vm.autoBackupLastError.collectAsState()
+        val backupFolderLauncher = rememberLauncherForActivityResult(
+            ActivityResultContracts.OpenDocumentTree(),
+        ) { uri -> if (uri != null) vm.enableAutoBackup(uri) }
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text("Automatic weekly backup", fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = nd.ink)
+                Text(
+                    autoBackupStatus(autoBackupFolder, autoBackupLastAt, autoBackupLastError),
+                    fontSize = 12.sp,
+                    color = nd.faint,
+                    lineHeight = 17.sp,
+                )
+            }
+            // Switching on always asks for the folder: the folder is what's being switched on.
+            NdSwitch(
+                checked = autoBackupFolder.isNotBlank(),
+                onCheckedChange = { on -> if (on) backupFolderLauncher.launch(null) else vm.disableAutoBackup() },
+            )
+        }
+
         SettingsNavRow(
             "Import",
             "Restores a backup, images included if the file has them. The app restarts afterward.",
@@ -594,6 +623,21 @@ fun SettingsScreen(
                 },
             )
         }
+    }
+}
+
+/** The line under the automatic backup switch: what it does while off, how it is going while on. */
+private fun autoBackupStatus(folder: String, lastAt: Long, lastError: String): String {
+    if (folder.isBlank()) {
+        return "Once a week, save the database and settings to a folder you choose. " +
+            "The newest ${AutoBackup.KEEP} are kept."
+    }
+    val into = "Into ${AutoBackup.folderLabel(folder)}, newest ${AutoBackup.KEEP} kept."
+    return when {
+        // The failure leads: a backup that has stopped working is the thing to notice.
+        lastError.isNotBlank() -> "Last attempt failed: $lastError $into"
+        lastAt == 0L -> "$into The first backup is being written."
+        else -> "$into Last backup: ${TextUtil.timeAgo(lastAt)}."
     }
 }
 

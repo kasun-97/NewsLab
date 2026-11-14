@@ -98,6 +98,11 @@ source (the feed is discovered for you) or save the page to Links.
   1.4 has none, and restoring one leaves the settings as they are). A backup from a
   newer version of the app, or a file that isn't a NewsLab database, is refused. A full
   reset returns the app to its fresh-install state.
+- Settings > Backup: **Automatic weekly backup** (off by default). Switching it on asks
+  for a folder, writes a database backup there straight away and then once a week,
+  and keeps the newest four; older automatic backups are deleted, and nothing else in the
+  folder is touched. Settings shows when the last one was written, or why it failed.
+  To use another folder, switch it off and on again.
 - Statistics screen: counts, per-source breakdown, refresh history, on-disk footprint,
   and a chart of keyword matches per day over the last 30 days with the top three rules.
 

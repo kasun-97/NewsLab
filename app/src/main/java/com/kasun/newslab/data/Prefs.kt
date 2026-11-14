@@ -59,6 +59,9 @@ class Prefs private constructor(private val context: Context) {
         private val QUIET_HOURS_END = intPreferencesKey("quiet_hours_end")
         private val PREFETCH_ALERT_BODIES = booleanPreferencesKey("prefetch_alert_bodies")
         private val MUTE_WORDS = stringPreferencesKey("mute_words")
+        private val AUTO_BACKUP_FOLDER = stringPreferencesKey("auto_backup_folder")
+        private val AUTO_BACKUP_LAST_AT = longPreferencesKey("auto_backup_last_at")
+        private val AUTO_BACKUP_LAST_ERROR = stringPreferencesKey("auto_backup_last_error")
 
         /** One setting that travels in a backup, with how its value is written as text and read back. */
         private class Carried<T : Any>(
@@ -81,8 +84,8 @@ class Prefs private constructor(private val context: Context) {
         /**
          * The settings a backup carries: everything the reader chose. Left out are the
          * last-refresh stamp, which describes the device rather than a choice, and the
-         * automatic backup's own switch and folder, since access to a folder is granted
-         * to one install and means nothing on another.
+         * automatic backup's folder and history, since access to a folder is granted to
+         * one install and means nothing on another.
          */
         private val CARRIED: List<Carried<*>> = listOf(
             flag(NOTIFICATIONS), text(THEME_MODE), text(DESIGN_STYLE), text(FONT_FAMILY),
@@ -304,5 +307,38 @@ class Prefs private constructor(private val context: Context) {
 
     suspend fun setMuteWords(words: String) {
         context.dataStore.edit { it[MUTE_WORDS] = words }
+    }
+
+    /**
+     * The folder (a document-tree URI) the weekly automatic backup writes into; blank
+     * while it is off. The folder is the switch: there is nothing to back up to without
+     * one, so a separate on/off flag could only disagree with it.
+     */
+    val autoBackupFolder: Flow<String> =
+        context.dataStore.data.map { it[AUTO_BACKUP_FOLDER] ?: "" }
+
+    /** Turns the automatic backup on with a folder, or off with a blank one; either way its history starts over. */
+    suspend fun setAutoBackupFolder(folder: String) {
+        context.dataStore.edit {
+            it[AUTO_BACKUP_FOLDER] = folder
+            it.remove(AUTO_BACKUP_LAST_AT)
+            it.remove(AUTO_BACKUP_LAST_ERROR)
+        }
+    }
+
+    /** When the last automatic backup was written, 0 if none has been yet. */
+    val autoBackupLastAt: Flow<Long> =
+        context.dataStore.data.map { it[AUTO_BACKUP_LAST_AT] ?: 0L }
+
+    /** Why the latest automatic backup failed; blank when it succeeded or none has run. */
+    val autoBackupLastError: Flow<String> =
+        context.dataStore.data.map { it[AUTO_BACKUP_LAST_ERROR] ?: "" }
+
+    /** Records an automatic backup's outcome: a blank [error] is a success at [time]. */
+    suspend fun recordAutoBackup(time: Long, error: String) {
+        context.dataStore.edit {
+            if (error.isBlank()) it[AUTO_BACKUP_LAST_AT] = time
+            it[AUTO_BACKUP_LAST_ERROR] = error
+        }
     }
 }
