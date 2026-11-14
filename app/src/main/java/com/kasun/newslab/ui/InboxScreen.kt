@@ -103,6 +103,7 @@ import com.kasun.newslab.data.StoryClusterer
 import com.kasun.newslab.data.TextUtil
 import com.kasun.newslab.ui.theme.nd
 import com.kasun.newslab.ui.theme.sourceHue
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.abs
 
@@ -164,6 +165,16 @@ fun InboxScreen(
         if (pendingScrollTop) {
             // Each filter keeps its own scroll, so this targets the page on screen.
             (pageListStates[filter] ?: listState).scrollToItem(0)
+            pendingScrollTop = false
+        }
+    }
+    // A refresh that adds nothing never changes the list, and the request used to stay
+    // armed: the next unrelated change (marking one article read) threw the list to the
+    // top. So it lapses when the refresh ends, after a moment's wait because the list is
+    // filtered off the main thread and the last rows can land just after the pass reports done.
+    LaunchedEffect(vm.refreshing) {
+        if (!vm.refreshing && pendingScrollTop) {
+            delay(1_000)
             pendingScrollTop = false
         }
     }
