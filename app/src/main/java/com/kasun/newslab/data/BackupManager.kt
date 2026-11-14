@@ -2,6 +2,8 @@ package com.kasun.newslab.data
 
 import android.content.Context
 import android.content.Intent
+import android.database.sqlite.SQLiteDatabase
+import android.database.sqlite.SQLiteException
 import android.net.Uri
 import androidx.sqlite.db.SimpleSQLiteQuery
 import kotlinx.coroutines.CancellationException
@@ -127,6 +129,10 @@ object BackupManager {
                 else -> return@withContext ImportResult.Failure("That file doesn't look like a NewsLab backup.")
             }
 
+            // Checked while the live database is still in place: past this point the
+            // file is swapped in and the app restarts onto whatever it contains.
+            restoreProblem(dbFile)?.let { return@withContext ImportResult.Failure(it) }
+
             AppDb.close()
             val liveDbFile = context.getDatabasePath(DB_FILE_NAME)
             File(liveDbFile.path + "-wal").delete()
@@ -149,11 +155,48 @@ object BackupManager {
         } catch (e: Exception) {
             ImportResult.Failure(e.message ?: "Import failed.")
         } finally {
-            downloaded.delete()
-            extractedDb.delete()
+            // deleteDatabase also clears the journal files the check's open may have left.
+            SQLiteDatabase.deleteDatabase(downloaded)
+            SQLiteDatabase.deleteDatabase(extractedDb)
             tempImages.deleteRecursively()
         }
     }
+
+    /**
+     * Why [file] must not replace the live database, as a message for the user, or null
+     * if it can. Room refuses to open a database newer than itself and has no migration
+     * path for one that isn't NewsLab's, and it finds that out on the next launch: with
+     * the bad file already in place the app then failed every time it started.
+     *
+     * Opened read-write, on what is always a private temporary copy: a backup is written
+     * in WAL mode, and a read-only open of one depends on being able to create its
+     * side files anyway.
+     */
+    internal fun restoreProblem(file: File): String? = try {
+        SQLiteDatabase.openDatabase(
+            file.path,
+            null,
+            SQLiteDatabase.OPEN_READWRITE or SQLiteDatabase.NO_LOCALIZED_COLLATORS,
+            // The default handler deletes a file it finds corrupt; reporting it is enough.
+            { },
+        ).use { db ->
+            val tables = db.rawQuery("SELECT name FROM sqlite_master WHERE type = 'table'", null).use { cursor ->
+                buildSet { while (cursor.moveToNext()) add(cursor.getString(0)) }
+            }
+            when {
+                db.version < 1 || !tables.containsAll(REQUIRED_TABLES) ->
+                    "That file is a database, but not a NewsLab backup."
+                db.version > DB_VERSION ->
+                    "That backup was made by a newer version of NewsLab. Update the app, then restore it."
+                else -> null
+            }
+        }
+    } catch (_: SQLiteException) {
+        "That backup's database looks corrupted."
+    }
+
+    /** Tables every NewsLab database has had since its first version. */
+    private val REQUIRED_TABLES = setOf("feeds", "categories", "keyword_rules", "articles")
 
     /**
      * Erases everything and returns the app to its fresh-install state: the database
