@@ -94,7 +94,10 @@ source (the feed is discovered for you) or save the page to Links.
 - Unsaved articles are pruned after 14 days, keyword-alert matches after 90 days. Saved
   articles are never pruned.
 - Backup to a single SQLite file, or a zip that also carries the cached thumbnails;
-  restore either. A full reset returns the app to its fresh-install state.
+  restore either. Both carry your settings as well as the library (a backup made before
+  1.4 has none, and restoring one leaves the settings as they are). A backup from a
+  newer version of the app, or a file that isn't a NewsLab database, is refused. A full
+  reset returns the app to its fresh-install state.
 - Statistics screen: counts, per-source breakdown, refresh history, on-disk footprint,
   and a chart of keyword matches per day over the last 30 days with the top three rules.
 

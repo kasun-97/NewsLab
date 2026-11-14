@@ -23,7 +23,8 @@ sealed class ImportResult {
  * Backup/restore for the whole local library. The database alone (feeds,
  * categories, rules, articles) is a plain SQLite file copy; the "+ images"
  * variant additionally bundles Coil's cached thumbnails into a zip so a
- * restored library doesn't need to re-download everything.
+ * restored library doesn't need to re-download everything. Either way the
+ * database copy also carries the settings; see [SettingsBackup].
  */
 object BackupManager {
 
@@ -40,9 +41,12 @@ object BackupManager {
 
     suspend fun export(context: Context, destination: Uri, includeImages: Boolean): ImportResult =
         withContext(Dispatchers.IO) {
+            // Staged as a private copy first: the settings are written into it, and the
+            // live file is only read while nothing else can write to it.
+            val dbFile = File.createTempFile("export", ".db", context.cacheDir)
             try {
-                checkpointWal(context)
-                val dbFile = context.getDatabasePath(DB_FILE_NAME)
+                snapshotDatabase(context, dbFile)
+                SettingsBackup.write(dbFile, Prefs.get(context).exportSettings())
                 val out = context.contentResolver.openOutputStream(destination)
                     ?: return@withContext ImportResult.Failure("Couldn't open the destination file.")
                 out.use { stream ->
@@ -66,6 +70,8 @@ object BackupManager {
                 throw e
             } catch (e: Exception) {
                 ImportResult.Failure(e.message ?: "Export failed.")
+            } finally {
+                SQLiteDatabase.deleteDatabase(dbFile)
             }
         }
 
@@ -132,6 +138,8 @@ object BackupManager {
             // Checked while the live database is still in place: past this point the
             // file is swapped in and the app restarts onto whatever it contains.
             restoreProblem(dbFile)?.let { return@withContext ImportResult.Failure(it) }
+            // Null for a backup from before settings were carried; those are left as they are.
+            val settings = SettingsBackup.take(dbFile)
 
             AppDb.close()
             val liveDbFile = context.getDatabasePath(DB_FILE_NAME)
@@ -149,6 +157,8 @@ object BackupManager {
             if (hasImages) {
                 tempImages.renameTo(imageCacheDir)
             }
+            // Last, so a restore that failed part-way hasn't also changed the settings.
+            settings?.let { Prefs.get(context).importSettings(it) }
             ImportResult.Success
         } catch (e: CancellationException) {
             throw e
@@ -231,13 +241,35 @@ object BackupManager {
         Runtime.getRuntime().exit(0)
     }
 
-    private fun checkpointWal(context: Context) {
-        // Room defaults to WAL; folding it back into the main file before copying
-        // means a plain file copy is a complete, self-contained snapshot.
-        AppDb.get(context).openHelper.writableDatabase
-            .query(SimpleSQLiteQuery("PRAGMA wal_checkpoint(TRUNCATE)"))
-            .use { it.moveToFirst() }
+    /**
+     * Copies the live database to [target] as one complete file.
+     *
+     * Room defaults to WAL, so the side file is folded into the main one first. The copy
+     * is then made inside a write transaction, which keeps every other writer out: a
+     * background refresh landing mid-copy could otherwise trigger a checkpoint that
+     * rewrites pages already copied, and an automatic backup runs exactly when such
+     * a refresh might. If something did write between the checkpoint and the
+     * transaction, the side file is no longer empty and the two steps are repeated.
+     */
+    private fun snapshotDatabase(context: Context, target: File) {
+        val db = AppDb.get(context).openHelper.writableDatabase
+        val live = context.getDatabasePath(DB_FILE_NAME)
+        val wal = File(live.path + "-wal")
+        for (attempt in 1..SNAPSHOT_ATTEMPTS) {
+            db.query(SimpleSQLiteQuery("PRAGMA wal_checkpoint(TRUNCATE)")).use { it.moveToFirst() }
+            db.beginTransaction()
+            try {
+                if (wal.length() == 0L || attempt == SNAPSHOT_ATTEMPTS) {
+                    live.copyTo(target, overwrite = true)
+                    return
+                }
+            } finally {
+                db.endTransaction()
+            }
+        }
     }
+
+    private const val SNAPSHOT_ATTEMPTS = 3
 
     private fun addFileToZip(zip: ZipOutputStream, file: File, entryName: String) {
         zip.putNextEntry(ZipEntry(entryName))

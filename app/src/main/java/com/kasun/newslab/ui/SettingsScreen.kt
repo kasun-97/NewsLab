@@ -540,7 +540,7 @@ fun SettingsScreen(
 
         SettingsNavRow(
             "Export database",
-            "Feeds, categories, rules and articles — no images.",
+            "Feeds, categories, rules, articles and settings — no images.",
         ) { exportDbLauncher.launch(BackupManager.exportFileName(includeImages = false)) }
         SettingsNavRow(
             "Export database + images",
@@ -560,8 +560,8 @@ fun SettingsScreen(
         if (confirmImport) {
             ConfirmDialog(
                 title = "Import and replace everything?",
-                body = "This overwrites your current feeds, categories, rules, articles, and " +
-                    "image cache with the contents of the backup you choose. Your current " +
+                body = "This overwrites your current feeds, categories, rules, articles, " +
+                    "settings and image cache with the contents of the backup you choose. Your current " +
                     "database is kept as a backup file first, but export your current data too " +
                     "if you want an easy way back.",
                 confirmLabel = "Choose file",

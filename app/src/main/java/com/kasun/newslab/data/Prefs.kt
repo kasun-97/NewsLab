@@ -1,6 +1,8 @@
 package com.kasun.newslab.data
 
 import android.content.Context
+import androidx.datastore.preferences.core.MutablePreferences
+import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
@@ -8,6 +10,7 @@ import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 
 private val Context.dataStore by preferencesDataStore(name = "settings")
@@ -57,6 +60,42 @@ class Prefs private constructor(private val context: Context) {
         private val PREFETCH_ALERT_BODIES = booleanPreferencesKey("prefetch_alert_bodies")
         private val MUTE_WORDS = stringPreferencesKey("mute_words")
 
+        /** One setting that travels in a backup, with how its value is written as text and read back. */
+        private class Carried<T : Any>(
+            val key: Preferences.Key<T>,
+            val encode: (T) -> String,
+            val decode: (String) -> T?,
+        ) {
+            fun read(prefs: Preferences): Pair<String, String>? = prefs[key]?.let { key.name to encode(it) }
+
+            /** A value missing from the backup, or unreadable, puts the setting back to its default. */
+            fun write(prefs: MutablePreferences, raw: String?) {
+                val value = raw?.let(decode)
+                if (value == null) prefs.remove(key) else prefs[key] = value
+            }
+        }
+
+        private fun flag(key: Preferences.Key<Boolean>) = Carried(key, Boolean::toString, String::toBooleanStrictOrNull)
+        private fun text(key: Preferences.Key<String>) = Carried(key, { it }, { it })
+
+        /**
+         * The settings a backup carries: everything the reader chose. Left out are the
+         * last-refresh stamp, which describes the device rather than a choice, and the
+         * automatic backup's own switch and folder, since access to a folder is granted
+         * to one install and means nothing on another.
+         */
+        private val CARRIED: List<Carried<*>> = listOf(
+            flag(NOTIFICATIONS), text(THEME_MODE), text(DESIGN_STYLE), text(FONT_FAMILY),
+            text(UI_FONT_FAMILY), text(FONT_SIZE),
+            Carried(REFRESH_INTERVAL_MINUTES, Long::toString, String::toLongOrNull),
+            flag(HIDE_READ), flag(SHOW_IMAGES), flag(PAGE_IMAGES), text(LIST_LAYOUT),
+            flag(GROUP_SIMILAR), flag(ONBOARDING_DONE), flag(LINKS_ENABLED),
+            flag(DIGEST_NOTIFICATIONS), flag(QUIET_HOURS_ENABLED),
+            Carried(QUIET_HOURS_START, Int::toString, String::toIntOrNull),
+            Carried(QUIET_HOURS_END, Int::toString, String::toIntOrNull),
+            flag(PREFETCH_ALERT_BODIES), text(MUTE_WORDS),
+        )
+
         const val DEFAULT_REFRESH_MINUTES = 15L
 
         /** Quiet hours default to 22:00 to 07:00, stored as minutes after midnight. */
@@ -69,6 +108,21 @@ class Prefs private constructor(private val context: Context) {
         fun get(context: Context): Prefs = instance ?: synchronized(this) {
             instance ?: Prefs(context.applicationContext).also { instance = it }
         }
+    }
+
+    /** The settings a backup carries, by name; one never changed from its default is absent. */
+    suspend fun exportSettings(): Map<String, String> {
+        val prefs = context.dataStore.data.first()
+        return CARRIED.mapNotNull { it.read(prefs) }.toMap()
+    }
+
+    /**
+     * Puts the carried settings back as a backup recorded them. A setting the backup
+     * doesn't mention returns to its default, as it was when the backup was made;
+     * names this version doesn't know are ignored.
+     */
+    suspend fun importSettings(values: Map<String, String>) {
+        context.dataStore.edit { prefs -> CARRIED.forEach { it.write(prefs, values[it.key.name]) } }
     }
 
     val notificationsEnabled: Flow<Boolean> =
