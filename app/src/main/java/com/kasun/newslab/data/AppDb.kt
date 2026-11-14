@@ -7,14 +7,17 @@ import androidx.room.RoomDatabase
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
+/** The schema version this build reads and writes; a backup from a later one can't be restored. */
+internal const val DB_VERSION = 19
+
 @Database(
     entities = [
         Feed::class, Category::class, KeywordRule::class, Article::class,
         FeedGroup::class, FeedGroupMember::class,
         ArticleContent::class, QuickLink::class,
-        QuickLinkList::class,
+        QuickLinkList::class, RemovedArticle::class,
     ],
-    version = 18,
+    version = DB_VERSION,
     exportSchema = true,
 )
 abstract class AppDb : RoomDatabase() {
@@ -269,12 +272,24 @@ abstract class AppDb : RoomDatabase() {
             }
         }
 
+        /** Remembers deleted and pruned article ids, so a feed still listing them can't re-add them. */
+        private val MIGRATION_18_19 = object : Migration(18, 19) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS removed_articles (" +
+                        "id TEXT NOT NULL PRIMARY KEY, feedId INTEGER NOT NULL, lastSeenAt INTEGER NOT NULL)"
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_removed_articles_feedId ON removed_articles (feedId)")
+            }
+        }
+
         /** Every migration in order; [get] registers these, and the migration test runs them. */
         internal val ALL_MIGRATIONS: Array<Migration> = arrayOf(
             MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6,
             MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10,
             MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14,
             MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18,
+            MIGRATION_18_19,
         )
 
         fun get(context: Context): AppDb = instance ?: synchronized(this) {

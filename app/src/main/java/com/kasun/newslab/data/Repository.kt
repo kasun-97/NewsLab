@@ -167,12 +167,16 @@ class Repository(private val context: Context) {
                 if (outcome.etag != feed.etag || outcome.lastModified != feed.lastModified) {
                     dao.updateFeedValidators(feed.id, outcome.etag, outcome.lastModified)
                 }
-                val articles = outcome.articles
-                if (articles.isEmpty()) continue
+                // A listing that parsed to nothing says nothing about what the feed carries.
+                if (outcome.listedIds.isEmpty()) continue
 
                 // A DB failure for one feed's batch degrades to a failed feed,
                 // like a fetch failure — it must not abort the whole pass.
                 try {
+                    // Deleted by hand or pruned: the feed still lists them, but they stay out.
+                    val removed = dao.stillRemoved(feed.id, outcome.listedIds, now, REMOVED_GRACE_MS)
+                    val articles = outcome.articles.filterNot { it.id in removed }
+                    if (articles.isEmpty()) continue
                     val rowIds = dao.insertArticles(articles)
                     val existingIds = rowIds.withIndex().filter { it.value == -1L }.map { articles[it.index].id }
                     // Chunked: a single IN(...) over a huge batch would blow
@@ -235,13 +239,9 @@ class Repository(private val context: Context) {
                 }
             }
 
-            dao.pruneOlderThan(cutoff)
             // Rule matches live longer than the timeline, but not forever: a broad rule
             // would otherwise grow the database without bound.
-            dao.pruneAlertsOlderThan(alertCutoff)
-            // Drop cached bodies whose article just aged out, so the content table
-            // doesn't outgrow the article list it mirrors.
-            dao.pruneOrphanContent()
+            dao.prune(cutoff, alertCutoff, now)
 
             // Driven by the alertNotified flag rather than this pass's inserts, so an alert
             // left pending (by a pass that died before this point, or held through quiet
@@ -305,6 +305,8 @@ class Repository(private val context: Context) {
      */
     private data class FetchOutcome(
         val articles: List<Article>,
+        /** The id of every item in the listing, including those too old to insert. */
+        val listedIds: List<String>,
         val isAtom: Boolean,
         val etag: String = "",
         val lastModified: String = "",
@@ -347,7 +349,9 @@ class Repository(private val context: Context) {
             .build()
         client.newCall(request).execute().use { response ->
             if (response.code == HTTP_NOT_MODIFIED) {
-                return@use Fetch.Ok(FetchOutcome(emptyList(), feed.isAtom, feed.etag, feed.lastModified, notModified = true))
+                return@use Fetch.Ok(
+                    FetchOutcome(emptyList(), emptyList(), feed.isAtom, feed.etag, feed.lastModified, notModified = true),
+                )
             }
             if (!response.isSuccessful) return@use Fetch.Failed(httpReason(response.code, response.message))
             val body = response.body ?: return@use Fetch.Failed("Empty response")
@@ -359,7 +363,7 @@ class Repository(private val context: Context) {
             if (parsed.items.isEmpty() && body.contentType()?.subtype.equals("html", ignoreCase = true)) {
                 return@use Fetch.Failed("Not a feed (the address serves a web page)")
             }
-            val articles = parsed.items.map { item ->
+            val listed = parsed.items.map { item ->
                 // Generous cap, not a display truncation — just a guard against
                 // pathological feeds; typical articles land well under this.
                 val summary = TextUtil.clean(item.description).take(8_000)
@@ -392,11 +396,13 @@ class Repository(private val context: Context) {
                     alertNotified = classification.ruleIds.isEmpty(),
                 )
             }
+            val articles = listed
                 .filter { it.title.isNotBlank() }
                 .filter { it.publishedAt >= cutoff || (it.matchedRules.isNotEmpty() && it.publishedAt >= alertCutoff) }
             Fetch.Ok(
                 FetchOutcome(
                     articles,
+                    listed.map { it.id },
                     parsed.isAtom,
                     etag = response.header("ETag").orEmpty(),
                     lastModified = response.header("Last-Modified").orEmpty(),
@@ -601,6 +607,9 @@ class Repository(private val context: Context) {
 
         /** Unsaved keyword-rule matches are kept this long; saved articles are never pruned. */
         const val ALERT_KEEP_DAYS = 90
+
+        /** How long a removed article's id is kept after feeds stop listing it; see NewsDao.stillRemoved. */
+        const val REMOVED_GRACE_MS = 7 * 86_400_000L
         const val HTML_HEAD_PEEK_BYTES = 65_536L
         const val HTTP_NOT_MODIFIED = 304
         const val MAX_REASON_CHARS = 120

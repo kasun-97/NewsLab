@@ -40,7 +40,7 @@ class AppDbMigrationTest {
         // validateDroppedTables is off because it rejects any table Room has no entity for,
         // and the full-text index is deliberately raw SQL. The same check is made below
         // with that index and its FTS4 shadow tables allowed.
-        val db = helper.runMigrationsAndValidate(name, 18, false, *AppDb.ALL_MIGRATIONS)
+        val db = helper.runMigrationsAndValidate(name, 19, false, *AppDb.ALL_MIGRATIONS)
 
         // Seeded v1 rows survive, with the columns added since then at their defaults.
         db.query("SELECT name, url, color, enabled, isAtom, etag, lastModified, lastFetchedAt, lastError, lastErrorAt, muted FROM feeds WHERE id = 7").use {
@@ -86,7 +86,7 @@ class AppDbMigrationTest {
         val expectedTables = setOf(
             "feeds", "categories", "keyword_rules", "articles", "feed_groups",
             "feed_group_members", "article_content", "quick_links", "quick_link_lists",
-            "room_master_table", "android_metadata", "sqlite_sequence",
+            "removed_articles", "room_master_table", "android_metadata", "sqlite_sequence",
             "article_content_fts", "article_content_fts_segments", "article_content_fts_segdir",
             "article_content_fts_docsize", "article_content_fts_stat",
         )
@@ -139,10 +139,11 @@ class AppDbMigrationTest {
     @Test
     fun freshInstallSchemaIsSelfConsistent() {
         // Runs the exported schema's own CREATE statements; throws if the JSON is missing or bad.
-        val db = helper.createDatabase("fresh-v18.db", 18)
+        val db = helper.createDatabase("fresh-v19.db", 19)
         for (table in listOf(
             "feeds", "categories", "keyword_rules", "articles", "feed_groups",
             "feed_group_members", "article_content", "quick_links", "quick_link_lists",
+            "removed_articles",
         )) {
             assertTrue("missing table $table", tableExists(db, table))
         }

@@ -127,6 +127,22 @@ data class ArticleContent(
     val fetchedAt: Long,
 )
 
+/**
+ * The id of an article that was deleted by hand or pruned for age, kept so the feed
+ * can't hand it back as new. Inserts ignore ids already stored, so once a row is gone
+ * nothing else marks its item as seen: a deleted article returned on the next refresh,
+ * and an item with no usable date (stamped with the time it was fetched) returned
+ * after every prune. A row lives for as long as a feed still lists the item, plus a
+ * margin; [feedId] is the feed whose fetches decide when it can go.
+ */
+@Entity(tableName = "removed_articles", indices = [Index("feedId")])
+data class RemovedArticle(
+    @PrimaryKey val id: String,
+    val feedId: Long,
+    /** When a feed last listed the item, or when it was removed if none has since. */
+    val lastSeenAt: Long,
+)
+
 /** A fetched article, classified at insert time. */
 @Entity(tableName = "articles", indices = [Index("publishedAt"), Index("feedId")])
 data class Article(

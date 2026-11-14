@@ -175,6 +175,80 @@ interface NewsDao {
     )
     fun articleCountsByFeed(): Flow<List<FeedArticleCounts>>
 
+    // ---- Removed articles ----
+
+    @Query(
+        "INSERT OR REPLACE INTO removed_articles (id, feedId, lastSeenAt) " +
+            "SELECT id, feedId, :now FROM articles WHERE id = :id"
+    )
+    suspend fun rememberRemoved(id: String, now: Long)
+
+    /** Deletes one article for good: its id is remembered, so the next refresh can't bring it back. */
+    @Transaction
+    suspend fun removeArticle(id: String, now: Long) {
+        rememberRemoved(id, now)
+        deleteArticle(id)
+        deleteArticleContent(id)
+    }
+
+    @Query(
+        "INSERT OR REPLACE INTO removed_articles (id, feedId, lastSeenAt) " +
+            "SELECT id, feedId, :now FROM articles WHERE isSaved = 0 AND matchedRules = '' AND publishedAt < :cutoff"
+    )
+    suspend fun rememberPruned(cutoff: Long, now: Long)
+
+    @Query(
+        "INSERT OR REPLACE INTO removed_articles (id, feedId, lastSeenAt) " +
+            "SELECT id, feedId, :now FROM articles WHERE isSaved = 0 AND matchedRules != '' AND publishedAt < :cutoff"
+    )
+    suspend fun rememberPrunedAlerts(cutoff: Long, now: Long)
+
+    /**
+     * Drops everything past its keep window, remembering each id on the way out. The
+     * fetch's own age check can't be relied on for that: an item with no usable date is
+     * stamped with the time it was fetched, so it always looks new, and one pruned as an
+     * ordinary article would pass the longer alert window if a rule were added later.
+     */
+    @Transaction
+    suspend fun prune(cutoff: Long, alertCutoff: Long, now: Long) {
+        rememberPruned(cutoff, now)
+        pruneOlderThan(cutoff)
+        rememberPrunedAlerts(alertCutoff, now)
+        pruneAlertsOlderThan(alertCutoff)
+        // Cached bodies whose article just aged out, so the content table doesn't
+        // outgrow the article list it mirrors.
+        pruneOrphanContent()
+    }
+
+    // One bound variable per id; callers chunk, as for the other IN (...) queries.
+    @Query("SELECT id FROM removed_articles WHERE id IN (:ids)")
+    suspend fun removedAmong(ids: List<String>): List<String>
+
+    @Query("UPDATE removed_articles SET lastSeenAt = :now WHERE id IN (:ids)")
+    suspend fun touchRemoved(ids: List<String>, now: Long)
+
+    @Query("DELETE FROM removed_articles WHERE feedId = :feedId AND lastSeenAt < :before")
+    suspend fun forgetRemovedBefore(feedId: Long, before: Long)
+
+    @Query("DELETE FROM removed_articles WHERE feedId = :feedId")
+    suspend fun forgetRemovedByFeed(feedId: Long)
+
+    /**
+     * Which of the ids a feed has just listed were removed earlier and so must not be
+     * inserted again. Called once per parsed fetch, which is also what ages the records:
+     * the ones listed are stamped as seen, and those of this feed not listed by anyone
+     * for [graceMs] are forgotten. Aging by fetch rather than by the clock means a feed
+     * that was unreachable or unchanged (304) for months can't outlive its records and
+     * then return every old item at once; the margin covers a feed whose listing flickers.
+     */
+    @Transaction
+    suspend fun stillRemoved(feedId: Long, listedIds: List<String>, now: Long, graceMs: Long): Set<String> {
+        val removed = listedIds.chunked(500).flatMap { removedAmong(it) }
+        removed.chunked(500).forEach { touchRemoved(it, now) }
+        forgetRemovedBefore(feedId, now - graceMs)
+        return removed.toHashSet()
+    }
+
     // ---- Article content (extracted full text) ----
 
     @Query("SELECT * FROM article_content WHERE id = :id")
@@ -286,6 +360,8 @@ interface NewsDao {
     @Transaction
     suspend fun deleteFeedCompletely(feed: Feed) {
         deleteArticlesByFeed(feed.id)
+        // Adding the source again later should bring its articles back.
+        forgetRemovedByFeed(feed.id)
         clearFeedGroups(feed.id)
         deleteFeed(feed)
     }

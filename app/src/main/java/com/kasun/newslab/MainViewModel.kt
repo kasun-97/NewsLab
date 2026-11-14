@@ -268,8 +268,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun deleteArticle(article: Article) = viewModelScope.launch {
-        dao.deleteArticle(article.id)
-        dao.deleteArticleContent(article.id)
+        dao.removeArticle(article.id, System.currentTimeMillis())
         Notifier.cancel(getApplication(), article.id)
         _messages.emit("Article deleted")
     }
