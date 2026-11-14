@@ -27,7 +27,10 @@ and the sites you save to Links (for their icon).
   or summary, in any order; wrap words in `"quotes"` to require an exact phrase.
   Prefix a word or phrase with `-` to exclude it (`IMF -"world cup"`): the rule then
   skips any article containing it, and a rule made only of exclusions never matches.
-  Matching is case-insensitive and substring-based. Matches are pinned under a
+  Matching is case-insensitive. With a rule's **Whole words** switch on (the default
+  for new rules) a term has to start a word: `rate` finds "rates" but not "corporate".
+  With it off a term matches anywhere inside a word, which is how rules made before 1.4
+  keep working until you switch it on. Matches are pinned under a
   **KEYWORD ALERTS** header for 24 hours and can raise Android notifications; switch a
   rule's **Notify** off to keep pinning its matches without notifying (on by default).
 - **Story clustering.** Near-duplicate headlines across sources (SimHash for syndicated
@@ -38,6 +41,9 @@ and the sites you save to Links (for their icon).
   comma-separated match terms. Articles are auto-tagged from their title, summary and
   the publisher's own RSS tags, and categories appear as filter chips. Editing a rule or
   category re-classifies stored articles immediately.
+- **Mute words** (Settings > Reading): a comma-separated list of words or phrases.
+  Articles that mention one, at the start of a word, are kept out of the inbox timeline.
+  Keyword-alert matches and saved articles are never hidden.
 - Per-source colours, a sources drawer (swipe from the left edge), search, unread
   counter, mark-all-read, hide-read-articles option.
 - Search covers titles and summaries, plus the full text of every article whose body has
@@ -48,10 +54,11 @@ and the sites you save to Links (for their icon).
 - Opens articles in-app. When the feed only carries an excerpt, a lightweight
   readability-style extractor fetches the page and pulls out the main body. It checks
   the site's `robots.txt` first and backs off if the site disallows the crawler.
-- Find in article, choice of reading typeface (Literata, Open Sans or the system font)
-  and four text sizes.
-- Save, share, mark read/unread or delete from a long-press sheet. Sharing produces a
-  1080×1080 social card drawn on a canvas, so it looks the same on every device.
+- Find in article (the full text too, once it has been extracted), choice of reading
+  typeface (Literata, Open Sans or the system font) and four text sizes.
+- Save, share, mark read/unread or delete from a long-press sheet. A deleted article
+  stays deleted: it is not fetched again while its feed still lists it. Sharing produces
+  a 1080×1080 social card drawn on a canvas, so it looks the same on every device.
 
 **Tabs**: Inbox, Saved (kept forever, never pruned), Alerts (every keyword match) and
 an optional Links tab for reference pages that aren't feeds, filed into foldable,
@@ -103,7 +110,7 @@ source (the feed is discovered for you) or save the page to Links.
   and keeps the newest four; older automatic backups are deleted, and nothing else in the
   folder is touched. Settings shows when the last one was written, or why it failed.
   To use another folder, switch it off and on again.
-- Statistics screen: counts, per-source breakdown, refresh history, on-disk footprint,
+- Statistics screen: counts, per-source breakdown, when it last refreshed, on-disk footprint,
   and a chart of keyword matches per day over the last 30 days with the top three rules.
 
 **Appearance**: light, dark or follow-system; two design languages (Warm Ledger, a
@@ -137,11 +144,13 @@ page. `assembleRelease` is minified with R8; it signs the APK only if an untrack
 root, and otherwise produces an unsigned APK. A `profiling` build type gives release code
 signed with the debug key for on-device performance checks.
 
-JVM unit tests cover the pure logic: keyword rules (including exclusions) and categories, story
-clustering, robots.txt parsing, text cleaning and date parsing, the RSS/Atom parser, OPML
-import/export, the full Room migration chain against the exported schema in `app/schemas/`, the
-alert policy (muting, quiet hours, digests), the matches chart, body-search queries, the problems
-list, pre-fetch selection, saved export and shared-link parsing. Tests that need Android classes or
+JVM unit tests cover the pure logic: keyword rules (including exclusions and whole words) and
+categories, mute words, story clustering, robots.txt parsing, text cleaning and date parsing, the
+RSS/Atom parser, the reader's article extraction, OPML import/export, the full Room migration chain
+against the exported schema in `app/schemas/`, the alert policy (muting, quiet hours, digests), the
+matches chart, body-search queries, the problems list, pre-fetch selection, saved export,
+shared-link parsing, the record of removed articles, and backups (the restore check, settings
+carried in a backup, which automatic backups are pruned). Tests that need Android classes or
 a database run under Robolectric, so no device is needed. CI runs them on pushes and pull requests
 to `main`:
 
@@ -161,7 +170,8 @@ The one instrumented test is a render of the share card. Run it with a device at
   terms from economic news; edit or delete them to suit what you read.
 - Feed dates that carry no time zone are interpreted as Asia/Colombo, because the feeds
   that omit one are Sri Lankan outlets publishing local wall-clock time. Change the zone
-  in `TextUtil.kt` if your zoneless feeds come from elsewhere.
+  in `TextUtil.kt` if your zoneless feeds come from elsewhere. An item with no date, or
+  one in a format the parser can't read, is dated when it was first fetched.
 - Requests go out with a `NewsLab/<version>` User-Agent; the robots.txt token is
   `newslab`.
 - Android has refused cleartext HTTP since target SDK 28 and the app claims no exemption,
